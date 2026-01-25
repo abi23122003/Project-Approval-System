@@ -11,6 +11,16 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+
+from django.core.exceptions import ImproperlyConfigured
+
+
+def env(name: str, default: str | None = None, *, required: bool = False) -> str:
+    value = os.environ.get(name, default)
+    if required and (value is None or value == ""):
+        raise ImproperlyConfigured(f"Missing required environment variable: {name}")
+    return value if value is not None else ""
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,7 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-uwsy0)k@taadb@ig3*&i9cj8kln0m2cb9l+lrvg58g%=h^b@+b'
+SECRET_KEY = env('DJANGO_SECRET_KEY', required=True)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -76,11 +86,11 @@ WSGI_APPLICATION = 'server.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'project_db',
-        'USER': 'aswin',
-        'PASSWORD': 'Aswin@2004',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.environ.get('POSTGRES_DB', 'project_approval_db'),
+        'USER': os.environ.get('POSTGRES_USER', 'aswin'),
+        'PASSWORD': env('POSTGRES_PASSWORD', required=True),
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     }
 }
 
