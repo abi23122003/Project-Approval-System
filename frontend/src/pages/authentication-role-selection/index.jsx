@@ -33,21 +33,21 @@ const AuthenticationRoleSelection = () => {
       label: 'Review Committee',
       icon: 'ClipboardCheck',
       description: 'Evaluate project submissions, score proposals, and provide comprehensive feedback for academic quality assurance.',
-      route: '/guide-project-review-interface'
+      route: '/reviewer-dashboard'
     },
     {
       value: 'hod',
       label: 'Head of Department',
       icon: 'UserCog',
       description: 'Oversee department projects, review analytics, manage faculty assignments, and approve final project submissions.',
-      route: '/student-dashboard'
+      route: '/hod-analytics-dashboard'
     },
     {
       value: 'admin',
       label: 'System Administrator',
       icon: 'Shield',
       description: 'Manage user accounts, configure system settings, monitor audit logs, and maintain institutional compliance.',
-      route: '/student-dashboard'
+      route: '/admin-dashboard'
     }
   ];
 
@@ -125,6 +125,13 @@ const AuthenticationRoleSelection = () => {
 
       if (matchingAccount) {
         const roleRoute = roles?.find(r => r?.value === selectedRole?.value)?.route;
+        try {
+          window.localStorage.setItem('aps.role', selectedRole?.value);
+          window.localStorage.setItem('aps.userEmail', matchingAccount?.email || '');
+          window.localStorage.setItem('aps.userName', matchingAccount?.name || '');
+        } catch {
+          // ignore storage failures
+        }
         navigate(roleRoute || '/student-dashboard');
       } else {
         setLoginError('Invalid credentials for the selected role. Please check your username, password, and ensure they match the selected role.');

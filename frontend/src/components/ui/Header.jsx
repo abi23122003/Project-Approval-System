@@ -1,6 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
+
+const ROLE_KEY = 'aps.role';
+
+const roleHomeRoute = {
+  student: '/student-dashboard',
+  guide: '/guide-dashboard',
+  reviewer: '/reviewer-dashboard',
+  hod: '/hod-analytics-dashboard',
+  admin: '/admin-dashboard'
+};
 
 
 const Header = () => {
@@ -19,17 +29,42 @@ const Header = () => {
     { value: 'admin', label: 'Administrator', icon: 'Shield' }
   ];
 
-  const navigationItems = {
+  const navigationItems = useMemo(() => ({
     student: [
       { label: 'Dashboard', path: '/student-dashboard', icon: 'LayoutDashboard' },
       { label: 'Projects', path: '/student-project-proposal-form', icon: 'FolderOpen' },
-      { label: 'Documents', path: '/student-document-management', icon: 'FileText' }
+      { label: 'Documents', path: '/student-document-management', icon: 'FileText' },
+      { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
     ],
     guide: [
       { label: 'Dashboard', path: '/guide-dashboard', icon: 'LayoutDashboard' },
-      { label: 'Reviews', path: '/guide-project-review-interface', icon: 'ClipboardCheck' }
+      { label: 'Reviews', path: '/guide-project-review-interface', icon: 'ClipboardCheck' },
+      { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
+    ],
+    reviewer: [
+      { label: 'Dashboard', path: '/reviewer-dashboard', icon: 'LayoutDashboard' },
+      { label: 'Review Interface', path: '/guide-project-review-interface', icon: 'ClipboardCheck' },
+      { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
+    ],
+    hod: [
+      { label: 'Analytics', path: '/hod-analytics-dashboard', icon: 'BarChart3' },
+      { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
+    ],
+    admin: [
+      { label: 'Dashboard', path: '/admin-dashboard', icon: 'LayoutDashboard' },
+      { label: 'System Config', path: '/system-configuration-panel', icon: 'Settings' },
+      { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
     ]
-  };
+  }), []);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(ROLE_KEY);
+      if (stored) setCurrentRole(stored);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const notifications = [
     { id: 1, title: 'Project Approved', message: 'Your project proposal has been approved', time: '2 hours ago', type: 'success' },
@@ -40,11 +75,12 @@ const Header = () => {
   const handleRoleChange = (role) => {
     setCurrentRole(role);
     setIsRoleSwitcherOpen(false);
-    if (role === 'student') {
-      navigate('/student-dashboard');
-    } else if (role === 'guide') {
-      navigate('/guide-dashboard');
+    try {
+      window.localStorage.setItem(ROLE_KEY, role);
+    } catch {
+      // ignore
     }
+    navigate(roleHomeRoute?.[role] || '/authentication-role-selection');
   };
 
   const handleNavigation = (path) => {
@@ -106,7 +142,18 @@ const Header = () => {
                 />
                 <div className="absolute right-0 top-12 w-80 bg-popover border border-border rounded-lg shadow-elevation-lg z-[1020] overflow-hidden">
                   <div className="p-4 border-b border-border">
-                    <h3 className="font-heading font-semibold text-foreground">Notifications</h3>
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="font-heading font-semibold text-foreground">Notifications</h3>
+                      <button
+                        onClick={() => {
+                          setIsNotificationOpen(false);
+                          navigate('/notification-center');
+                        }}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        View all
+                      </button>
+                    </div>
                   </div>
                   <div className="max-h-96 overflow-y-auto">
                     {notifications?.map((notification) => (
