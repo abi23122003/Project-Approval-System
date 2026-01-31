@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from .auth import CustomTokenObtainPairView
 from .models import (
     AuditEvent,
+    Role,
     Project,
     ProjectComment,
     ProjectHodDecision,
@@ -25,6 +26,7 @@ from .serializers import (
     JoinRequestCreateSerializer,
     JoinRequestReviewSerializer,
     JoinRequestSerializer,
+    PublicRegisterSerializer,
     ProgressDocumentCreateSerializer,
     ProgressDocumentSerializer,
     ProgressUpdateCreateSerializer,
@@ -46,6 +48,7 @@ from .services import (
     create_progress_update,
     create_project,
     create_user,
+    create_user_public,
     review_join_request,
     update_project,
 )
@@ -60,6 +63,32 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 class LoginView(CustomTokenObtainPairView):
     permission_classes = []
+
+
+class RegisterView(APIView):
+    permission_classes = []
+
+    def post(self, request):
+        serializer = PublicRegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        role_obj = serializer.validated_data["role_code"]
+        if role_obj.role_code in {Role.ADMIN, Role.HOD}:
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        email = serializer.validated_data["email"].strip()
+        user = create_user_public(
+            payload={
+                "username": email,
+                "email": email,
+                "password": serializer.validated_data["password"],
+                "first_name": serializer.validated_data.get("first_name", ""),
+                "last_name": serializer.validated_data.get("last_name", ""),
+                "role_code": role_obj,
+                "department": None,
+            }
+        )
+        return Response(UserListSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
 class HealthView(APIView):

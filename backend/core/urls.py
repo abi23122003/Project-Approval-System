@@ -21,6 +21,7 @@ from .views import (
     JoinRequestCreateView,
     JoinRequestRejectView,
     LoginView,
+    RegisterView,
     ProgressDocumentUploadView,
     ProgressUpdateView,
     StudentApprovedProjectsView,
@@ -35,6 +36,7 @@ urlpatterns = [
     re_path(r"^$", HealthView.as_view(), name="health"),
 
     re_path(r"^auth/login/?$", LoginView.as_view(), name="login"),
+    re_path(r"^auth/register/?$", RegisterView.as_view(), name="register"),
     re_path(r"^users/?$", UsersView.as_view(), name="user-create"),
 
     re_path(r"^student/project/?$", StudentProjectView.as_view(), name="student-project"),

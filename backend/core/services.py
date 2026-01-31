@@ -99,6 +99,31 @@ def create_user(*, actor: User, payload: dict[str, Any]) -> User:
     return user
 
 
+def create_user_public(*, payload: dict[str, Any]) -> User:
+    """Create a user from a public (unauthenticated) context.
+
+    Note: this intentionally does not create an audit event because there is no authenticated actor.
+    """
+    try:
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=payload["username"],
+                email=payload.get("email", ""),
+                password=payload["password"],
+                first_name=payload.get("first_name", ""),
+                last_name=payload.get("last_name", ""),
+            )
+            AppUser.objects.create(
+                user=user,
+                role_code=payload["role_code"],
+                department=payload.get("department"),
+                created_by=None,
+            )
+            return user
+    except Exception as exc:
+        raise_db_exception(exc)
+
+
 @audited_db_write(
     event_type="PROJECT_CREATED",
     entity_type="Project",

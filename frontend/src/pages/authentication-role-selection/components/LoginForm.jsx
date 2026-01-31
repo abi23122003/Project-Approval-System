@@ -1,18 +1,46 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 
-const LoginForm = ({ selectedRole, onLogin, isLoading, error }) => {
+const LoginForm = ({
+  selectedRole,
+  onLogin,
+  isLoading,
+  error,
+  defaultUsername,
+  defaultPassword,
+  autoSubmit = false,
+}) => {
   const [formData, setFormData] = useState({
-    username: '',
-    password: '',
+    username: defaultUsername || '',
+    password: defaultPassword || '',
     rememberDevice: false
   });
 
   const [validationErrors, setValidationErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
+  const didAutoSubmitRef = useRef(false);
+
+  useEffect(() => {
+    if (!defaultUsername && !defaultPassword) return;
+    setFormData(prev => ({
+      ...prev,
+      username: prev?.username || defaultUsername || '',
+      password: prev?.password || defaultPassword || '',
+    }));
+  }, [defaultUsername, defaultPassword]);
+
+  useEffect(() => {
+    if (!autoSubmit || didAutoSubmitRef.current) return;
+    if (!defaultUsername || !defaultPassword) return;
+    if (isLoading) return;
+    if (typeof onLogin !== 'function') return;
+
+    didAutoSubmitRef.current = true;
+    onLogin({ username: defaultUsername, password: defaultPassword, rememberDevice: false });
+  }, [autoSubmit, defaultUsername, defaultPassword, isLoading, onLogin]);
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -66,6 +94,7 @@ const LoginForm = ({ selectedRole, onLogin, isLoading, error }) => {
           error={validationErrors?.password}
           required
           disabled={isLoading}
+          className="pr-10"
         />
         <button
           type="button"

@@ -27,6 +27,14 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField()
 
 
+class PublicRegisterSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=6)
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
+    role_code = serializers.SlugRelatedField(slug_field="role_code", queryset=Role.objects.all())
+
+
 class UserCreateSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)

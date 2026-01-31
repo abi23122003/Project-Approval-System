@@ -80,13 +80,22 @@ const Sidebar = ({ isCollapsed = false, onToggleCollapse }) => {
         hidden lg:flex lg:flex-col
       `}
     >
-      <div className="h-16 flex items-center justify-between px-4 border-b border-border">
+      <div
+        className={`
+          h-16 border-b border-border
+          ${isCollapsed
+            ? 'flex flex-col items-center justify-center gap-1 px-2'
+            : 'flex items-center justify-between px-4'}
+        `}
+      >
         <button
           onClick={() => handleNavigate(roleHomeRoute?.[role] || '/')}
-          className="flex items-center gap-3 min-w-0"
+          className={`flex items-center min-w-0 ${isCollapsed ? 'justify-center' : 'gap-3'}`}
           aria-label="Go to home"
         >
-          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div
+            className={`${isCollapsed ? 'w-9 h-9' : 'w-10 h-10'} bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0`}
+          >
             <Icon name="GraduationCap" size={22} color="var(--color-primary)" />
           </div>
           {!isCollapsed && (
@@ -99,7 +108,7 @@ const Sidebar = ({ isCollapsed = false, onToggleCollapse }) => {
 
         <button
           onClick={onToggleCollapse}
-          className="p-2 rounded-lg hover:bg-muted transition-smooth"
+          className={`${isCollapsed ? 'p-1.5' : 'p-2'} rounded-lg hover:bg-muted transition-smooth`}
           aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           <Icon name={isCollapsed ? 'ChevronRight' : 'ChevronLeft'} size={18} color="var(--color-foreground)" />
