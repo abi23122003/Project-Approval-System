@@ -7,12 +7,15 @@ import { Checkbox } from '../../../components/ui/Checkbox';
 const LoginForm = ({
   selectedRole,
   onLogin,
+  onRegister,
+  onForgotPassword,
   isLoading,
   error,
   defaultUsername,
   defaultPassword,
   autoSubmit = false,
 }) => {
+  const [mode, setMode] = useState('login'); // 'login' or 'register'
   const [formData, setFormData] = useState({
     username: defaultUsername || '',
     password: defaultPassword || '',
@@ -52,7 +55,7 @@ const LoginForm = ({
   const validateForm = () => {
     const errors = {};
     if (!formData?.username?.trim()) {
-      errors.username = 'Username or email is required';
+      errors.username = mode === 'login' ? 'Username or email is required' : 'Email is required';
     }
     if (!formData?.password) {
       errors.password = 'Password is required';
@@ -69,15 +72,24 @@ const LoginForm = ({
       setValidationErrors(errors);
       return;
     }
-    onLogin(formData);
+    
+    if (mode === 'login') {
+      onLogin(formData);
+    } else {
+      onRegister(formData);
+    }
   };
+
+  const usernamePlaceholder = mode === 'login' 
+    ? 'student@demo.edu' 
+    : 'your@email.edu';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 md:space-y-5">
       <Input
-        label="Username or Email"
+        label={mode === 'login' ? 'Username or Email' : 'Email Address'}
         type="text"
-        placeholder="Enter your username or email"
+        placeholder={usernamePlaceholder}
         value={formData?.username}
         onChange={(e) => handleChange('username', e?.target?.value)}
         error={validationErrors?.username}
@@ -111,35 +123,75 @@ const LoginForm = ({
           <p className="text-sm text-error">{error}</p>
         </div>
       )}
-      <div className="flex items-center justify-between gap-4">
-        <Checkbox
-          label="Remember this device"
-          checked={formData?.rememberDevice}
-          onChange={(e) => handleChange('rememberDevice', e?.target?.checked)}
-          disabled={isLoading}
-        />
-        <button
-          type="button"
-          className="text-sm text-primary hover:text-primary/80 transition-smooth"
-          disabled={isLoading}
-        >
-          Forgot password?
-        </button>
-      </div>
+      {mode === 'login' && (
+        <div className="flex items-center justify-between gap-4">
+          <Checkbox
+            label="Remember this device"
+            checked={formData?.rememberDevice}
+            onChange={(e) => handleChange('rememberDevice', e?.target?.checked)}
+            disabled={isLoading}
+          />
+          <button
+            type="button"
+            onClick={() => onForgotPassword?.(formData?.username)}
+            className="text-sm text-primary hover:text-primary/80 transition-smooth"
+            disabled={isLoading}
+          >
+            Forgot password?
+          </button>
+        </div>
+      )}
       <Button
         type="submit"
         variant="default"
         size="lg"
         fullWidth
         loading={isLoading}
-        iconName="LogIn"
+        iconName={mode === 'login' ? 'LogIn' : 'UserPlus'}
         iconPosition="right"
       >
-        Sign In as {selectedRole?.label || 'User'}
+        {mode === 'login' ? `Sign In as ${selectedRole?.label || 'User'}` : 'Create Account'}
       </Button>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Icon name="Shield" size={14} />
         <span>Secured by institutional authentication</span>
+      </div>
+      
+      {/* Toggle between login and register */}
+      <div className="text-center pt-4 border-t border-border">
+        <p className="text-xs md:text-sm text-muted-foreground">
+          {mode === 'login' ? (
+            <>
+              New here?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('register');
+                  setValidationErrors({});
+                }}
+                className="text-primary hover:text-primary/80 font-medium transition-smooth"
+                disabled={isLoading}
+              >
+                Create an account
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setValidationErrors({});
+                }}
+                className="text-primary hover:text-primary/80 font-medium transition-smooth"
+                disabled={isLoading}
+              >
+                Sign in
+              </button>
+            </>
+          )}
+        </p>
       </div>
     </form>
   );

@@ -1,44 +1,84 @@
 import React, { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import Button from './Button';
 
 const QuickActions = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const showToast = (message) => {
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = `position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--color-primary,#2563eb);color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.15)`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+  };
 
   const actionsByRoute = {
     '/student-dashboard': [
-      { label: 'New Project', icon: 'Plus', variant: 'default', action: 'create-project' },
-      { label: 'Upload Document', icon: 'Upload', variant: 'outline', action: 'upload-doc' },
-      { label: 'View Timeline', icon: 'Calendar', variant: 'ghost', action: 'view-timeline' }
+      { label: 'New Project', icon: 'Plus', variant: 'default', action: 'create-project', navigate: '/student-project-proposal-form' },
+      { label: 'Upload Document', icon: 'Upload', variant: 'outline', action: 'upload-doc', navigate: '/student-document-management' },
+      { label: 'View Timeline', icon: 'Calendar', variant: 'ghost', action: 'view-timeline', navigate: null }
     ],
     '/student-project-proposal-form': [
-      { label: 'Save Draft', icon: 'Save', variant: 'outline', action: 'save-draft' },
-      { label: 'Preview', icon: 'Eye', variant: 'ghost', action: 'preview' },
-      { label: 'Submit', icon: 'Send', variant: 'default', action: 'submit' }
+      { label: 'Save Draft', icon: 'Save', variant: 'outline', action: 'save-draft', navigate: null },
+      { label: 'Preview', icon: 'Eye', variant: 'ghost', action: 'preview', navigate: null },
+      { label: 'Submit', icon: 'Send', variant: 'default', action: 'submit', navigate: null }
     ],
     '/student-document-management': [
-      { label: 'Upload File', icon: 'Upload', variant: 'default', action: 'upload-file' },
-      { label: 'Create Folder', icon: 'FolderPlus', variant: 'outline', action: 'create-folder' },
-      { label: 'Download All', icon: 'Download', variant: 'ghost', action: 'download-all' }
+      { label: 'Upload File', icon: 'Upload', variant: 'default', action: 'upload-file', navigate: null },
+      { label: 'Create Folder', icon: 'FolderPlus', variant: 'outline', action: 'create-folder', navigate: null },
+      { label: 'Download All', icon: 'Download', variant: 'ghost', action: 'download-all', navigate: null }
     ],
     '/guide-dashboard': [
-      { label: 'Review Projects', icon: 'ClipboardCheck', variant: 'default', action: 'review-projects' },
-      { label: 'Export Report', icon: 'FileDown', variant: 'outline', action: 'export-report' }
+      { label: 'Review Projects', icon: 'ClipboardCheck', variant: 'default', action: 'review-projects', navigate: '/guide-project-review-interface' },
+      { label: 'Export Report', icon: 'FileDown', variant: 'outline', action: 'export-report', navigate: null }
     ],
     '/guide-project-review-interface': [
-      { label: 'Approve', icon: 'CheckCircle', variant: 'success', action: 'approve' },
-      { label: 'Request Changes', icon: 'AlertCircle', variant: 'warning', action: 'request-changes' },
-      { label: 'Reject', icon: 'XCircle', variant: 'destructive', action: 'reject' },
-      { label: 'Add Comment', icon: 'MessageSquare', variant: 'outline', action: 'add-comment' }
+      { label: 'Approve', icon: 'CheckCircle', variant: 'success', action: 'approve', navigate: null },
+      { label: 'Request Changes', icon: 'AlertCircle', variant: 'warning', action: 'request-changes', navigate: null },
+      { label: 'Reject', icon: 'XCircle', variant: 'destructive', action: 'reject', navigate: null },
+      { label: 'Add Comment', icon: 'MessageSquare', variant: 'outline', action: 'add-comment', navigate: null }
     ]
   };
 
   const currentActions = actionsByRoute?.[location?.pathname] || [];
 
+  const toastMessages = {
+    'save-draft': 'Draft saved successfully!',
+    'preview': 'Opening preview…',
+    'submit': 'Submitting proposal…',
+    'upload-file': 'Opening file picker…',
+    'create-folder': 'Creating new folder…',
+    'download-all': 'Preparing download…',
+    'export-report': 'Generating report…',
+    'approve': 'Project approved!',
+    'request-changes': 'Change request sent.',
+    'reject': 'Project rejected.',
+    'add-comment': 'Comment box opened.',
+    'view-timeline': 'Scrolling to timeline…'
+  };
+
   const handleAction = (action) => {
-    console.log(`Action triggered: ${action}`);
+    // Find the action config
+    const actionConfig = currentActions?.find(a => a?.action === action);
+    
+    if (!actionConfig) {
+      console.error(`Action ${action} not found in currentActions`);
+      return;
+    }
+
+    // If navigate path exists, use navigation
+    if (actionConfig?.navigate) {
+      navigate(actionConfig.navigate);
+    } else {
+      // Otherwise show a toast notification
+      const messageText = toastMessages[action] || `${action} triggered`;
+      showToast(messageText);
+    }
+
     setIsExpanded(false);
   };
 

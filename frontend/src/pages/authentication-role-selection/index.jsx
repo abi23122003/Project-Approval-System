@@ -54,6 +54,14 @@ const roles = [
   }
 ];
 
+const demoAccounts = [
+  { email: 'student@demo.edu', password: 'demo123', roleValue: 'student' },
+  { email: 'guide@demo.edu', password: 'demo123', roleValue: 'guide' },
+  { email: 'reviewer@demo.edu', password: 'demo123', roleValue: 'reviewer' },
+  { email: 'hod@demo.edu', password: 'demo123', roleValue: 'hod' },
+  { email: 'admin@demo.edu', password: 'demo123', roleValue: 'admin' }
+];
+
 const decodeJwtPayload = (jwt) => {
   try {
     const payloadPart = jwt?.split('.')?.[1];
@@ -77,6 +85,19 @@ const parseBoolEnv = (value) => {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 };
 
+const saveSession = (roleValue, email, accessToken, refreshToken, navigate) => {
+  const roleRoute = roles?.find(r => r?.value === roleValue)?.route;
+  try {
+    window.localStorage.setItem('aps.role', roleValue);
+    window.localStorage.setItem('aps.userEmail', email || '');
+    window.localStorage.setItem('aps.accessToken', accessToken || '');
+    window.localStorage.setItem('aps.refreshToken', refreshToken || '');
+  } catch {
+    // ignore storage failures
+  }
+  navigate(roleRoute || '/student-dashboard');
+};
+
 const AuthenticationRoleSelection = () => {
   const navigate = useNavigate();
 
@@ -90,8 +111,9 @@ const AuthenticationRoleSelection = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [showTestAccounts, setShowTestAccounts] = useState(false);
-
-  const testAccounts = [];
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordMessage, setForgotPasswordMessage] = useState('');
 
   const securityIndicators = [
     { type: 'ldap', label: 'LDAP Connected', status: 'active' },
@@ -108,6 +130,22 @@ const AuthenticationRoleSelection = () => {
     setIsLoading(true);
     setLoginError('');
 
+    // Check if credentials match demo accounts
+    const matchedDemo = demoAccounts?.find(
+      account => account.email === formData?.username && account.password === formData?.password
+    );
+
+    if (matchedDemo) {
+      // Demo account login - skip backend entirely
+      const demoRole = matchedDemo.roleValue;
+      // Generate fake tokens for demo
+      const fakeDemoToken = 'demo.token.' + btoa(JSON.stringify({ role_code: roleToBackendRoleCode[demoRole] }));
+      saveSession(demoRole, formData?.username, fakeDemoToken, fakeDemoToken, navigate);
+      setIsLoading(false);
+      return;
+    }
+
+    // Real backend login
     try {
       const resp = await fetch(`${API_BASE}/auth/login/`, {
         method: 'POST',
@@ -136,16 +174,7 @@ const AuthenticationRoleSelection = () => {
         return;
       }
 
-      const roleRoute = roles?.find(r => r?.value === selectedRole?.value)?.route;
-      try {
-        window.localStorage.setItem('aps.role', selectedRole?.value);
-        window.localStorage.setItem('aps.userEmail', formData?.username || '');
-        window.localStorage.setItem('aps.accessToken', access || '');
-        window.localStorage.setItem('aps.refreshToken', refresh || '');
-      } catch {
-        // ignore storage failures
-      }
-      navigate(roleRoute || '/student-dashboard');
+      saveSession(selectedRole?.value, formData?.username, access, refresh, navigate);
     } catch {
       setLoginError('Login failed. Ensure the backend is running on http://localhost:8000 and the frontend can reach /api (Vite proxy).');
     } finally {
@@ -191,6 +220,26 @@ const AuthenticationRoleSelection = () => {
     }
   };
 
+  const handleForgotPassword = (email) => {
+    setForgotPasswordEmail(email);
+    setForgotPasswordMessage('');
+    setShowForgotPasswordModal(true);
+  };
+
+  const handleForgotPasswordSubmit = (email) => {
+    if (!email.trim()) {
+      setForgotPasswordMessage('Please enter a valid email address.');
+      return;
+    }
+    // Fake a successful password reset request
+    setForgotPasswordMessage('Password reset link sent to ' + email + '. Check your email for instructions.');
+    setTimeout(() => {
+      setShowForgotPasswordModal(false);
+      setForgotPasswordEmail('');
+      setForgotPasswordMessage('');
+    }, 3000);
+  };
+
   const handleQuickLogin = (account) => {
     const role = roles?.find(r => r?.value === account?.roleValue);
     setSelectedRole(role);
@@ -223,6 +272,39 @@ const AuthenticationRoleSelection = () => {
             </p>
           </div>
 
+          {/* Demo Accounts Banner */}
+          <div className="mb-6 md:mb-8 bg-blue-50 border border-blue-200 rounded-xl shadow-elevation-md p-4 md:p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base md:text-lg font-heading font-semibold text-foreground flex items-center gap-2">
+                <Icon name="Zap" size={20} color="var(--color-primary)" />
+                Quick Demo Login
+              </h3>
+              <button
+                onClick={() => setShowTestAccounts(!showTestAccounts)}
+                className="text-sm text-primary hover:text-primary/80 transition-smooth"
+              >
+                {showTestAccounts ? 'Hide' : 'Show All'}
+              </button>
+            </div>
+            <p className="text-xs md:text-sm text-muted-foreground mb-4">
+              Click any account below to instantly log in. No backend connection required.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+              {demoAccounts?.map((account) => (
+                <TestAccountCard
+                  key={account?.email}
+                  account={{
+                    id: account?.email,
+                    email: account?.email,
+                    password: account?.password,
+                    roleValue: account?.roleValue
+                  }}
+                  onQuickLogin={handleQuickLogin}
+                />
+              ))}
+            </div>
+          </div>
+
           <div className="grid lg:grid-cols-2 gap-6 md:gap-8 lg:gap-12 items-stretch">
             <div className="bg-card border border-border rounded-xl shadow-elevation-lg p-6 md:p-8 h-full flex flex-col">
               <h2 className="text-xl md:text-2xl font-heading font-semibold text-foreground mb-4 md:mb-6">
@@ -248,11 +330,13 @@ const AuthenticationRoleSelection = () => {
               <LoginForm
                 selectedRole={selectedRole}
                 onLogin={handleLogin}
+                onRegister={handleRegister}
+                onForgotPassword={handleForgotPassword}
                 isLoading={isLoading}
                 error={loginError}
-                  defaultUsername={selectedRole?.value === 'admin' ? devDefaultAdminEmail : undefined}
-                  defaultPassword={selectedRole?.value === 'admin' ? devDefaultAdminPassword : undefined}
-                  autoSubmit={selectedRole?.value === 'admin' ? devAutoLogin : false}
+                defaultUsername={selectedRole?.value === 'admin' ? devDefaultAdminEmail : undefined}
+                defaultPassword={selectedRole?.value === 'admin' ? devDefaultAdminPassword : undefined}
+                autoSubmit={selectedRole?.value === 'admin' ? devAutoLogin : false}
               />
             </div>
           </div>
@@ -290,45 +374,66 @@ const AuthenticationRoleSelection = () => {
           </div>
 
           <div className="mt-6 md:mt-8">
-
-              {showTestAccounts && testAccounts?.length > 0 && (
-                <div className="bg-card border border-border rounded-xl shadow-elevation-md p-4 md:p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-base md:text-lg font-heading font-semibold text-foreground">
-                      Test Accounts
-                    </h3>
-                    <button
-                      onClick={() => setShowTestAccounts(false)}
-                      className="text-muted-foreground hover:text-foreground transition-smooth"
-                    >
-                      <Icon name="X" size={18} />
-                    </button>
-                  </div>
-                  <p className="text-xs md:text-sm text-muted-foreground mb-4">
-                    Quick login with pre-configured test accounts for development
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-                    {testAccounts?.map((account) => (
-                      <TestAccountCard
-                        key={account?.id}
-                        account={account}
-                        onQuickLogin={handleQuickLogin}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-                <span>&copy; {new Date()?.getFullYear()} AcademicProjectHub</span>
-                <span>•</span>
-                <button className="hover:text-foreground transition-smooth">Privacy Policy</button>
-                <span>•</span>
-                <button className="hover:text-foreground transition-smooth">Terms of Service</button>
-              </div>
+            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+              <span>&copy; {new Date()?.getFullYear()} AcademicProjectHub</span>
+              <span>•</span>
+              <button className="hover:text-foreground transition-smooth">Privacy Policy</button>
+              <span>•</span>
+              <button className="hover:text-foreground transition-smooth">Terms of Service</button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgotPasswordModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000] p-4">
+          <div className="bg-card border border-border rounded-xl shadow-elevation-xl p-6 md:p-8 max-w-md w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg md:text-xl font-heading font-semibold text-foreground">
+                Reset Password
+              </h3>
+              <button
+                onClick={() => setShowForgotPasswordModal(false)}
+                className="text-muted-foreground hover:text-foreground transition-smooth"
+              >
+                <Icon name="X" size={20} />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-6">
+              Enter your email address and we'll send you a link to reset your password.
+            </p>
+            <div className="space-y-4">
+              <input
+                type="email"
+                placeholder="your@email.edu"
+                value={forgotPasswordEmail}
+                onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 bg-background text-foreground"
+              />
+              {forgotPasswordMessage && (
+                <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg text-sm text-primary">
+                  {forgotPasswordMessage}
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowForgotPasswordModal(false)}
+                  className="flex-1 px-4 py-2 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-smooth"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleForgotPasswordSubmit(forgotPasswordEmail)}
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-smooth"
+                >
+                  Send Reset Link
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
