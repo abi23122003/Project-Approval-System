@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
@@ -8,11 +8,39 @@ import NotificationCard from './components/NotificationCard';
 import FilterPanel from './components/FilterPanel';
 import NotificationSettings from './components/NotificationSettings';
 import QuickActions from './components/QuickActions';
+import { fetchAuditEvents, isDemoSession, getRole } from '../../utils/api';
+
+const DEMO_NOTIFICATIONS = [
+  { id: 1, title: 'Project Submission Approved', message: 'Your project has been reviewed and approved. You can now proceed to the next phase of development.', sender: 'Review System', senderAvatar: null, senderAvatarAlt: '', type: 'approval', category: 'Project Management', priority: 'high', timestamp: new Date(Date.now() - 3600000), isRead: false },
+  { id: 2, title: 'Review Request Assigned', message: 'You have been assigned to review a project. Please check your review queue.', sender: 'System Administrator', senderAvatar: null, senderAvatarAlt: '', type: 'review', category: 'Academic Review', priority: 'critical', timestamp: new Date(Date.now() - 7200000), isRead: false },
+  { id: 3, title: 'Feedback Available', message: 'Your faculty guide has provided detailed feedback on your project proposal. Please review the comments.', sender: 'Faculty Guide', senderAvatar: null, senderAvatarAlt: '', type: 'feedback', category: 'Feedback', priority: 'medium', timestamp: new Date(Date.now() - 10800000), isRead: false },
+  { id: 4, title: 'Upcoming Deadline Reminder', message: 'Reminder: Your project final submission deadline is approaching. Please ensure all required documents are uploaded.', sender: 'AcademicProjectHub System', senderAvatar: null, senderAvatarAlt: '', type: 'deadline', category: 'Deadline Alert', priority: 'high', timestamp: new Date(Date.now() - 86400000), isRead: true },
+  { id: 5, title: 'System Maintenance Scheduled', message: 'AcademicProjectHub will undergo scheduled maintenance. The system will be temporarily unavailable.', sender: 'IT Department', senderAvatar: null, senderAvatarAlt: '', type: 'system', category: 'System Update', priority: 'low', timestamp: new Date(Date.now() - 172800000), isRead: true },
+];
+
+const eventTypeToNotif = (e, idx) => {
+  const typeMap = { LOGIN: 'system', LOGOUT: 'system', CREATE: 'submission', UPDATE: 'feedback', DELETE: 'deadline', APPROVE: 'approval', REJECT: 'deadline' };
+  const type = typeMap[e.event_type?.split('_')[0]] || 'system';
+  const priorityMap = { APPROVE: 'high', REJECT: 'high', DELETE: 'critical', LOGIN: 'low', LOGOUT: 'low' };
+  const priority = priorityMap[e.event_type?.split('_')[0]] || 'medium';
+  return {
+    id: e.id || idx,
+    title: `${e.event_type?.replace(/_/g, ' ')} — ${e.entity_type || 'System Event'}`,
+    message: e.details_json ? JSON.stringify(e.details_json).slice(0, 120).replace(/[{}"]/, '') : `Entity #${e.entity_id || ''}`,
+    sender: e.actor ? `User #${e.actor}` : 'System',
+    senderAvatar: null, senderAvatarAlt: '',
+    type, category: type === 'approval' ? 'Project Management' : type === 'system' ? 'System Update' : 'Academic Review',
+    priority,
+    timestamp: new Date(e.event_time),
+    isRead: true,
+  };
+};
 
 const NotificationCenter = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
     showUnreadOnly: false,
     priority: 'all',
@@ -21,138 +49,26 @@ const NotificationCenter = () => {
     timeRange: 'all'
   });
 
-  const [notifications, setNotifications] = useState([
-  {
-    id: 1,
-    title: 'Project Submission Approved',
-    message: 'Your project "Machine Learning in Healthcare" has been approved by Dr. Sarah Johnson. You can now proceed to the next phase of development.',
-    sender: 'Dr. Sarah Johnson',
-    senderAvatar: "https://img.rocket.new/generatedImages/rocket_gen_img_1b43e8b7f-1763295504724.png",
-    senderAvatarAlt: 'Professional headshot of woman with shoulder-length brown hair wearing navy blazer and white blouse',
-    type: 'approval',
-    category: 'Project Management',
-    priority: 'high',
-    timestamp: new Date('2026-01-26T10:15:00'),
-    isRead: false
-  },
-  {
-    id: 2,
-    title: 'Review Request Assigned',
-    message: 'You have been assigned to review the project "Blockchain Applications in Supply Chain" submitted by John Martinez. Review deadline: January 30, 2026.',
-    sender: 'System Administrator',
-    senderAvatar: null,
-    senderAvatarAlt: '',
-    type: 'review',
-    category: 'Academic Review',
-    priority: 'critical',
-    timestamp: new Date('2026-01-26T09:30:00'),
-    isRead: false
-  },
-  {
-    id: 3,
-    title: 'Feedback Available',
-    message: 'Dr. Michael Chen has provided detailed feedback on your project proposal. Please review the comments and make necessary revisions.',
-    sender: 'Dr. Michael Chen',
-    senderAvatar: "https://img.rocket.new/generatedImages/rocket_gen_img_1bb8988be-1763295050652.png",
-    senderAvatarAlt: 'Professional headshot of Asian man with short black hair wearing gray suit and blue tie',
-    type: 'feedback',
-    category: 'Feedback',
-    priority: 'medium',
-    timestamp: new Date('2026-01-26T08:45:00'),
-    isRead: false
-  },
-  {
-    id: 4,
-    title: 'Upcoming Deadline Reminder',
-    message: 'Reminder: Your project final submission is due in 3 days (January 29, 2026). Please ensure all required documents are uploaded.',
-    sender: 'AcademicFlow System',
-    senderAvatar: null,
-    senderAvatarAlt: '',
-    type: 'deadline',
-    category: 'Deadline Alert',
-    priority: 'high',
-    timestamp: new Date('2026-01-26T07:00:00'),
-    isRead: true
-  },
-  {
-    id: 5,
-    title: 'New Project Submission',
-    message: 'Emily Rodriguez has submitted a new project "AI-Powered Educational Platform" for your review. The project includes comprehensive documentation and prototype demonstrations.',
-    sender: 'Emily Rodriguez',
-    senderAvatar: "https://img.rocket.new/generatedImages/rocket_gen_img_1631c1677-1763295642190.png",
-    senderAvatarAlt: 'Professional headshot of Hispanic woman with long dark hair wearing burgundy blouse',
-    type: 'submission',
-    category: 'Project Management',
-    priority: 'medium',
-    timestamp: new Date('2026-01-25T16:20:00'),
-    isRead: true
-  },
-  {
-    id: 6,
-    title: 'System Maintenance Scheduled',
-    message: 'AcademicFlow will undergo scheduled maintenance on January 28, 2026, from 2:00 AM to 4:00 AM EST. The system will be temporarily unavailable during this period.',
-    sender: 'IT Department',
-    senderAvatar: null,
-    senderAvatarAlt: '',
-    type: 'system',
-    category: 'System Update',
-    priority: 'low',
-    timestamp: new Date('2026-01-25T14:00:00'),
-    isRead: true
-  },
-  {
-    id: 7,
-    title: 'Review Completed',
-    message: 'Your review for the project "Sustainable Energy Solutions" has been successfully submitted. The student will be notified of your feedback.',
-    sender: 'AcademicFlow System',
-    senderAvatar: null,
-    senderAvatarAlt: '',
-    type: 'review',
-    category: 'Academic Review',
-    priority: 'low',
-    timestamp: new Date('2026-01-25T11:30:00'),
-    isRead: true
-  },
-  {
-    id: 8,
-    title: 'Critical: Evaluation Overdue',
-    message: 'The evaluation for project "Data Analytics Dashboard" is now 2 days overdue. Please complete the assessment as soon as possible to avoid delays in the academic process.',
-    sender: 'Department Head',
-    senderAvatar: "https://img.rocket.new/generatedImages/rocket_gen_img_1c5942421-1763295562537.png",
-    senderAvatarAlt: 'Professional headshot of senior man with gray hair and beard wearing dark suit',
-    type: 'deadline',
-    category: 'Deadline Alert',
-    priority: 'critical',
-    timestamp: new Date('2026-01-25T09:00:00'),
-    isRead: false
-  },
-  {
-    id: 9,
-    title: 'Project Milestone Achieved',
-    message: 'Congratulations! Your project "IoT Smart Home System" has successfully completed Phase 2 evaluation with excellent scores. Proceed to Phase 3 implementation.',
-    sender: 'Dr. Amanda Williams',
-    senderAvatar: "https://img.rocket.new/generatedImages/rocket_gen_img_16e75c406-1763294340369.png",
-    senderAvatarAlt: 'Professional headshot of woman with blonde hair in bun wearing teal blazer',
-    type: 'approval',
-    category: 'Project Management',
-    priority: 'medium',
-    timestamp: new Date('2026-01-24T15:45:00'),
-    isRead: true
-  },
-  {
-    id: 10,
-    title: 'Feedback Request',
-    message: 'Student David Thompson has requested additional clarification on your previous feedback regarding the methodology section of his project proposal.',
-    sender: 'David Thompson',
-    senderAvatar: "https://img.rocket.new/generatedImages/rocket_gen_img_17f90d383-1763293392637.png",
-    senderAvatarAlt: 'Professional headshot of young man with short brown hair wearing blue shirt',
-    type: 'feedback',
-    category: 'Feedback',
-    priority: 'medium',
-    timestamp: new Date('2026-01-24T13:20:00'),
-    isRead: true
-  }]
-  );
+  const [notifications, setNotifications] = useState([]);
+
+  useEffect(() => {
+    const isDemo = isDemoSession();
+    if (isDemo) {
+      setNotifications(DEMO_NOTIFICATIONS);
+      setLoading(false);
+      return;
+    }
+    fetchAuditEvents()
+      .then(events => {
+        if (events && events.length > 0) {
+          setNotifications(events.map((e, i) => eventTypeToNotif(e, i)));
+        } else {
+          setNotifications(DEMO_NOTIFICATIONS);
+        }
+      })
+      .catch(() => setNotifications(DEMO_NOTIFICATIONS))
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleMarkAsRead = (id) => {
     setNotifications(notifications?.map((notif) =>

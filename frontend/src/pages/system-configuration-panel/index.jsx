@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import Sidebar from '../../components/ui/Sidebar';
 import Icon from '../../components/AppIcon';
@@ -10,6 +10,7 @@ import SettingItem from './components/SettingItem';
 import ConfigurationModal from './components/ConfigurationModal';
 import AuditLogTable from './components/AuditLogTable';
 import SystemHealthWidget from './components/SystemHealthWidget';
+import { fetchAuditEvents, isDemoSession, getUserName } from '../../utils/api';
 
 const SystemConfigurationPanel = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -18,6 +19,38 @@ const SystemConfigurationPanel = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentConfigType, setCurrentConfigType] = useState(null);
   const [currentConfig, setCurrentConfig] = useState(null);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  // Load audit logs when the audit tab is opened
+  useEffect(() => {
+    if (activeTab !== 'audit') return;
+    setLogsLoading(true);
+    fetchAuditEvents()
+      .then(events => {
+        if (events?.length) {
+          setAuditLogs(events.slice(0, 20).map((e, i) => ({
+            id: e.id || i,
+            timestamp: new Date(e.event_time).toLocaleString(),
+            action: e.event_type?.toLowerCase().split('_')[0] || 'updated',
+            configuration: `${e.entity_type || 'System'} #${e.entity_id || ''}`,
+            user: e.actor ? `User #${e.actor}` : 'System',
+            details: e.details_json ? JSON.stringify(e.details_json).slice(0, 80) : e.event_type,
+          })));
+        } else {
+          // Fallback for demo / empty backend
+          setAuditLogs([
+            { id: 1, timestamp: new Date().toLocaleString(), action: 'info', configuration: 'System', user: getUserName('Admin'), details: 'No audit events found. Connect backend for real data.' },
+          ]);
+        }
+      })
+      .catch(() => {
+        setAuditLogs([
+          { id: 1, timestamp: new Date().toLocaleString(), action: 'error', configuration: 'System', user: 'System', details: 'Failed to load audit logs.' },
+        ]);
+      })
+      .finally(() => setLogsLoading(false));
+  }, [activeTab]);
 
   const configurationCategories = [
     {
@@ -274,48 +307,6 @@ const SystemConfigurationPanel = () => {
     }
   ];
 
-  const auditLogs = [
-    {
-      id: 1,
-      timestamp: "Jan 26, 2026 11:45 AM",
-      action: "updated",
-      configuration: "Academic Term Configuration",
-      user: "Dr. Sarah Mitchell",
-      details: "Modified Spring 2026 term end date"
-    },
-    {
-      id: 2,
-      timestamp: "Jan 26, 2026 10:30 AM",
-      action: "created",
-      configuration: "Notification Template",
-      user: "Admin User",
-      details: "Created new deadline reminder template"
-    },
-    {
-      id: 3,
-      timestamp: "Jan 26, 2026 09:15 AM",
-      action: "updated",
-      configuration: "User Role Permissions",
-      user: "System Administrator",
-      details: "Updated reviewer access permissions"
-    },
-    {
-      id: 4,
-      timestamp: "Jan 25, 2026 04:20 PM",
-      action: "updated",
-      configuration: "Grading Scale",
-      user: "Dr. James Wilson",
-      details: "Modified evaluation rubric criteria"
-    },
-    {
-      id: 5,
-      timestamp: "Jan 25, 2026 02:10 PM",
-      action: "deleted",
-      configuration: "Workflow Template",
-      user: "Admin User",
-      details: "Removed deprecated review workflow"
-    }
-  ];
 
   const systemHealthMetrics = [
     {

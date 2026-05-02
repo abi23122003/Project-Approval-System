@@ -6,35 +6,8 @@ import Button from '../../../components/ui/Button';
 const StudentContextHeader = ({ student, project }) => {
   const [showHistory, setShowHistory] = useState(false);
 
-  const reviewHistory = [
-    {
-      id: 1,
-      phase: 'Proposal Review',
-      reviewer: 'Dr. Sarah Johnson',
-      date: '2025-09-15',
-      decision: 'Approved',
-      score: 85,
-      comments: 'Strong research proposal with clear objectives and methodology.'
-    },
-    {
-      id: 2,
-      phase: 'Mid-term Review',
-      reviewer: 'Dr. Michael Chen',
-      date: '2025-11-20',
-      decision: 'Minor Revisions',
-      score: 78,
-      comments: 'Good progress. Need to strengthen the literature review section.'
-    },
-    {
-      id: 3,
-      phase: 'Progress Review',
-      reviewer: 'Dr. Sarah Johnson',
-      date: '2026-01-10',
-      decision: 'Approved',
-      score: 88,
-      comments: 'Excellent implementation. Documentation needs minor improvements.'
-    }
-  ];
+  // Review history is fetched per-project; empty until a real endpoint is wired
+  const reviewHistory = [];
 
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden">

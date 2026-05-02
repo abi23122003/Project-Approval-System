@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.urls import re_path
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
     AdminAuditEventsView,
@@ -37,7 +38,9 @@ urlpatterns = [
 
     re_path(r"^auth/login/?$", LoginView.as_view(), name="login"),
     re_path(r"^auth/register/?$", RegisterView.as_view(), name="register"),
+    re_path(r"^auth/token/refresh/?$", TokenRefreshView.as_view(), name="token-refresh"),
     re_path(r"^users/?$", UsersView.as_view(), name="user-create"),
+
 
     re_path(r"^student/project/?$", StudentProjectView.as_view(), name="student-project"),
     re_path(r"^student/project/(?P<project_id>\d+)/?$", StudentProjectUpdateView.as_view(), name="student-project-update"),

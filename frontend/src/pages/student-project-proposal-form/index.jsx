@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getUserEmail } from '../../utils/api';
 import Header from '../../components/ui/Header';
 import Breadcrumbs from '../../components/ui/Breadcrumbs';
 import QuickActions from '../../components/ui/QuickActions';
@@ -18,10 +19,15 @@ import ReviewStep from './components/ReviewStep';
 const StudentProjectProposalForm = () => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
+  const _email = getUserEmail() || '';
+  const _name = _email
+    ? _email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    : '';
+
   const [formData, setFormData] = useState({
-    studentName: 'Emily Rodriguez',
-    studentId: 'CS2024-1847',
-    email: 'emily.rodriguez@university.edu',
+    studentName: _name,
+    studentId: _email ? _email.split('@')[0].toUpperCase() : '',
+    email: _email,
     phone: '',
     department: '',
     academicYear: '',
@@ -203,7 +209,8 @@ const StudentProjectProposalForm = () => {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    // TODO: POST to /api/student/project/ with formData
     console.log('Submitting proposal:', formData);
     setShowSubmitModal(false);
     navigate('/student-dashboard');

@@ -9,62 +9,122 @@ import StudentContextHeader from './components/StudentContextHeader';
 import CollaborationIndicator from './components/CollaborationIndicator';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import {
+  fetchMentoredProjects,
+  fetchFacultyProjectProgress,
+  isDemoSession,
+  getUserName,
+  getUserEmail,
+} from '../../utils/api';
+
+// Demo fallbacks
+const DEMO_STUDENT = {
+  name: 'Select a Project',
+  rollNumber: '—',
+  department: '—',
+  year: '—',
+  email: '—',
+  phone: '—',
+  avatar: null,
+  avatarAlt: '',
+};
+const DEMO_PROJECT = {
+  title: 'No project selected',
+  phase: 'Pending',
+  submissionDate: '—',
+  reviewDeadline: '—',
+};
+const DEMO_DOC = {
+  name: 'No document',
+  size: '—',
+  submittedDate: '—',
+  version: '1.0',
+};
 
 const GuideProjectReviewInterface = () => {
   const navigate = useNavigate();
   const [isMobileView, setIsMobileView] = useState(false);
   const [activePanel, setActivePanel] = useState('document');
   const [showExportModal, setShowExportModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const [studentData, setStudentData] = useState(DEMO_STUDENT);
+  const [projectData, setProjectData] = useState(DEMO_PROJECT);
+  const [documentData, setDocumentData] = useState(DEMO_DOC);
+  const [activeReviewers, setActiveReviewers] = useState([]);
 
   useEffect(() => {
-    const handleResize = () => {
-      setIsMobileView(window.innerWidth < 1024);
-    };
-
+    const handleResize = () => setIsMobileView(window.innerWidth < 1024);
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const studentData = {
-    name: 'Emily Rodriguez',
-    rollNumber: 'CS2021045',
-    department: 'Computer Science & Engineering',
-    year: 'Final Year (2025-26)',
-    email: 'emily.rodriguez@university.edu',
-    phone: '+1 (555) 123-4567',
-    avatar: "https://img.rocket.new/generatedImages/rocket_gen_img_103c16fd1-1763300797899.png",
-    avatarAlt: 'Professional headshot of young Hispanic woman with long dark hair wearing navy blazer and white blouse'
-  };
+  useEffect(() => {
+    const isDemo = isDemoSession();
+    if (isDemo) {
+      // Demo: show placeholder with the logged-in reviewer's name
+      const reviewerName = getUserName('Reviewer');
+      setActiveReviewers([{ id: 1, name: reviewerName, avatar: null, avatarAlt: '' }]);
+      setLoading(false);
+      return;
+    }
 
-  const projectData = {
-    title: 'Machine Learning Applications in Healthcare: Predictive Diagnostics and Patient Outcome Optimization',
-    phase: 'Final Review',
-    submissionDate: 'January 20, 2026',
-    reviewDeadline: 'January 30, 2026'
-  };
+    fetchMentoredProjects()
+      .then(projects => {
+        // Load data from the first (most recent) mentored project
+        const project = projects?.[0];
+        if (!project) {
+          setLoading(false);
+          return;
+        }
 
-  const documentData = {
-    name: 'Final_Project_Report.pdf',
-    size: '4.2 MB',
-    submittedDate: 'January 20, 2026 at 3:45 PM',
-    version: '3.0'
-  };
+        setProjectData({
+          title: project.title || 'Untitled Project',
+          phase: project.status?.replace(/_/g, ' ') || 'In Progress',
+          submissionDate: project.submitted_at
+            ? new Date(project.submitted_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+            : '—',
+          reviewDeadline: project.deadline
+            ? new Date(project.deadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+            : '—',
+        });
 
-  const activeReviewers = [
-  {
-    id: 1,
-    name: 'Dr. Michael Chen',
-    avatar: "https://img.rocket.new/generatedImages/rocket_gen_img_11cb265c2-1763299648576.png",
-    avatarAlt: 'Professional headshot of Asian male professor with short black hair wearing gray suit and glasses'
-  },
-  {
-    id: 2,
-    name: 'Dr. Sarah Johnson',
-    avatar: "https://img.rocket.new/generatedImages/rocket_gen_img_130d9780d-1763301569013.png",
-    avatarAlt: 'Professional headshot of Caucasian female professor with blonde hair in bun wearing blue blazer'
-  }];
+        // Build student context from project data
+        setStudentData({
+          name: `Student #${project.team_leader_student}`,
+          rollNumber: `ID-${project.team_leader_student}`,
+          department: `Dept #${project.department}`,
+          year: 'Current Student',
+          email: '—',
+          phone: '—',
+          avatar: null,
+          avatarAlt: '',
+        });
 
+        setDocumentData({
+          name: `${project.title?.slice(0, 30)}_Report.pdf`,
+          size: '—',
+          submittedDate: project.submitted_at
+            ? new Date(project.submitted_at).toLocaleString()
+            : '—',
+          version: '1.0',
+        });
+
+        // Active reviewer = logged-in user
+        const reviewerName = getUserName('Reviewer');
+        const reviewerEmail = getUserEmail() || '';
+        setActiveReviewers([
+          { id: 1, name: reviewerName, avatar: null, avatarAlt: reviewerEmail },
+        ]);
+      })
+      .catch(() => {
+        // Keep demo fallback but show logged-in reviewer
+        const reviewerName = getUserName('Reviewer');
+        setActiveReviewers([{ id: 1, name: reviewerName, avatar: null, avatarAlt: '' }]);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleSubmitReview = (reviewData) => {
     console.log('Review submitted:', reviewData);
@@ -73,15 +133,24 @@ const GuideProjectReviewInterface = () => {
   };
 
   const handleSaveDraft = () => {
-    console.log('Draft saved');
     alert('Review draft saved successfully!');
   };
 
   const handleExportReport = () => {
-    console.log('Exporting evaluation report...');
     setShowExportModal(false);
     alert('Evaluation report exported successfully!');
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Icon name="Loader2" size={40} color="var(--color-primary)" className="animate-spin" />
+          <p className="text-muted-foreground">Loading project data…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -105,7 +174,6 @@ const GuideProjectReviewInterface = () => {
               iconName="FileDown"
               iconPosition="left"
               onClick={() => setShowExportModal(true)}>
-
               Export Report
             </Button>
           </div>
@@ -126,7 +194,6 @@ const GuideProjectReviewInterface = () => {
                   activePanel === 'document' ?
                   'bg-background text-foreground shadow-elevation-sm' : 'text-muted-foreground hover:text-foreground'}`
                   }>
-
                     <Icon name="FileText" size={16} className="inline mr-2" />
                     Document
                   </button>
@@ -135,7 +202,6 @@ const GuideProjectReviewInterface = () => {
                   className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-smooth ${
                   activePanel === 'evaluation' ? 'bg-background text-foreground shadow-elevation-sm' : 'text-muted-foreground hover:text-foreground'}`
                   }>
-
                     <Icon name="ClipboardCheck" size={16} className="inline mr-2" />
                     Evaluation
                   </button>
@@ -144,7 +210,6 @@ const GuideProjectReviewInterface = () => {
                 <div className="h-[600px]">
                   {activePanel === 'document' ?
                 <DocumentViewer document={documentData} onAnnotate={() => {}} /> :
-
                 <EvaluationForm onSubmit={handleSubmitReview} onSaveDraft={handleSaveDraft} />
                 }
                 </div>
@@ -195,7 +260,6 @@ const GuideProjectReviewInterface = () => {
               <button
               onClick={() => setShowExportModal(false)}
               className="p-2 hover:bg-muted rounded-lg transition-smooth">
-
                 <Icon name="X" size={20} color="var(--color-foreground)" />
               </button>
             </div>

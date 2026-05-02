@@ -165,4 +165,8 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     'TOKEN_OBTAIN_SERIALIZER': 'core.auth.CustomTokenObtainPairSerializer',
+    'ACCESS_TOKEN_LIFETIME': __import__('datetime').timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': __import__('datetime').timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': False,
 }

@@ -135,7 +135,9 @@ class StudentProjectView(APIView):
         return Response(ProjectDetailSerializer(project).data, status=status.HTTP_201_CREATED)
 
     def get(self, request):
-        project = get_object_or_404(Project, team_leader_student=request.user)
+        project = Project.objects.filter(team_leader_student=request.user).first()
+        if project is None:
+            return Response(None, status=status.HTTP_200_OK)  # student has no project yet
         return Response(ProjectDetailSerializer(project).data)
 
 
@@ -414,7 +416,10 @@ class StudentOwnProjectProgressView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        project = get_object_or_404(Project, team_leader_student=request.user)
+        project = Project.objects.filter(team_leader_student=request.user).first()
+        if project is None:
+            # Student has no project yet — return empty paginated result (200, not 404)
+            return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
         queryset = ProjectProgressUpdate.objects.filter(project=project).order_by("-created_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
