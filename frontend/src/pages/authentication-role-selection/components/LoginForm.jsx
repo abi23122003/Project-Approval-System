@@ -14,8 +14,9 @@ const LoginForm = ({
   defaultUsername,
   defaultPassword,
   autoSubmit = false,
+  mode = 'login',
+  onModeChange,
 }) => {
-  const [mode, setMode] = useState('login'); // 'login' or 'register'
   const [formData, setFormData] = useState({
     username: defaultUsername || '',
     password: defaultPassword || '',
@@ -166,7 +167,7 @@ const LoginForm = ({
               <button
                 type="button"
                 onClick={() => {
-                  setMode('register');
+                  if (onModeChange) onModeChange('register');
                   setValidationErrors({});
                 }}
                 className="text-primary hover:text-primary/80 font-medium transition-smooth"
@@ -181,7 +182,7 @@ const LoginForm = ({
               <button
                 type="button"
                 onClick={() => {
-                  setMode('login');
+                  if (onModeChange) onModeChange('login');
                   setValidationErrors({});
                 }}
                 className="text-primary hover:text-primary/80 font-medium transition-smooth"

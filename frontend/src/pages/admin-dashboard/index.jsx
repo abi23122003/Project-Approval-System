@@ -11,6 +11,7 @@ import RoleDistributionChart from './components/RoleDistributionChart';
 import BackupManagementPanel from './components/BackupManagementPanel';
 import Icon from '../../components/AppIcon';
 import {
+  apiFetch,
   fetchAdminUsers,
   fetchAuditEvents,
   fetchAdminProjects,
@@ -33,12 +34,14 @@ const DEMO_BACKUPS = [
   { id: 2, name: 'Weekly Full Backup', status: 'completed', createdAt: 'This week', size: 2678901234, createdBy: 'System', description: 'Weekly comprehensive backup' },
 ];
 
-const QUICK_ACTIONS = [
+// QUICK_ACTIONS is built inside the component so the Create New User
+// button can reference the showCreateModal setter.
+const buildQuickActions = (openModal) => [
   {
     title: 'User Management',
     description: 'Manage user accounts and permissions',
     actions: [
-      { label: 'Create New User', icon: 'UserPlus', variant: 'default', onClick: () => console.log('Create user') },
+      { label: 'Create New User', icon: 'UserPlus', variant: 'default', onClick: openModal },
       { label: 'Export User List', icon: 'Download', variant: 'outline', onClick: () => console.log('Export users') },
     ],
   },
@@ -83,6 +86,13 @@ const DEMO_AVATARS = [
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+// ─── Blank create-user form ───────────────────────────────────────────────────
+const BLANK_FORM = {
+  username: '', email: '', password: '', role_code: 'STUDENT', department: '',
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 const AdminDashboard = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -91,6 +101,12 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [auditEvents, setAuditEvents] = useState([]);
   const [projects, setProjects] = useState([]);
+
+  // Create-user modal
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState(BLANK_FORM);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
 
   const isDemo = isDemoSession();
 
@@ -228,12 +244,51 @@ const AdminDashboard = () => {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  const handleEditUser = (user) => console.log('Edit user:', user);
-  const handleDeleteUser = (user) => console.log('Delete user:', user);
-  const handleViewDetails = (user) => console.log('View details:', user);
-  const handleCreateBackup = () => console.log('Create backup');
-  const handleRestoreBackup = (backup) => console.log('Restore backup:', backup);
-  const handleDeleteBackup = (backup) => console.log('Delete backup:', backup);
+  const handleEditUser    = (user)   => console.log('Edit user:', user);
+  const handleDeleteUser  = (user)   => console.log('Delete user:', user);
+  const handleViewDetails = (user)   => console.log('View details:', user);
+  const handleCreateBackup          = ()       => console.log('Create backup');
+  const handleRestoreBackup         = (backup) => console.log('Restore backup:', backup);
+  const handleDeleteBackup          = (backup) => console.log('Delete backup:', backup);
+
+  const openCreateModal = () => {
+    setCreateForm(BLANK_FORM);
+    setCreateError('');
+    setShowCreateModal(true);
+  };
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    if (!createForm.username || !createForm.email || !createForm.password) {
+      setCreateError('Username, email and password are required.');
+      return;
+    }
+    setIsCreating(true);
+    setCreateError('');
+    try {
+      await apiFetch('/admin/users/', {
+        method: 'POST',
+        body: JSON.stringify({
+          username:   createForm.username.trim(),
+          email:      createForm.email.trim(),
+          password:   createForm.password,
+          role_code:  createForm.role_code,
+          department: createForm.department.trim() || undefined,
+        }),
+      });
+      // Refresh users list
+      const fresh = await fetchAdminUsers().catch(() => []);
+      setUsers(fresh || []);
+      setShowCreateModal(false);
+      setCreateForm(BLANK_FORM);
+    } catch (err) {
+      setCreateError(err?.message || 'Failed to create user. Please try again.');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const QUICK_ACTIONS = buildQuickActions(openCreateModal);
 
   if (loading) {
     return (
@@ -282,8 +337,44 @@ const AdminDashboard = () => {
             ))}
           </div>
 
+          {/* Role-breakdown stats (real sessions only) */}
+          {!isDemo && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
+              {[
+                { label: 'Students',    count: roleCounts.STUDENT, icon: 'GraduationCap', color: 'bg-primary/10 text-primary' },
+                { label: 'Faculty',     count: roleCounts.FACULTY, icon: 'Users',         color: 'bg-accent/10 text-accent' },
+                { label: 'HODs',        count: roleCounts.HOD,     icon: 'UserCog',       color: 'bg-warning/10 text-warning' },
+                { label: 'Admins',      count: roleCounts.ADMIN,   icon: 'Shield',        color: 'bg-error/10 text-error' },
+              ].map(({ label, count, icon, color }) => (
+                <div key={label} className="bg-card border border-border rounded-lg p-4 flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
+                    <Icon name={icon} size={20} color="currentColor" />
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-foreground">{count}</p>
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
             <div className="lg:col-span-2">
+              {/* User Management header with Create User button */}
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-heading font-semibold text-foreground">Users</h2>
+                {!isDemo && (
+                  <button
+                    id="create-user-btn"
+                    onClick={openCreateModal}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-smooth shadow-elevation-sm"
+                  >
+                    <Icon name="UserPlus" size={16} color="currentColor" />
+                    Create User
+                  </button>
+                )}
+              </div>
               <UserManagementTable
                 users={usersData}
                 onEditUser={handleEditUser}
@@ -318,6 +409,157 @@ const AdminDashboard = () => {
         </div>
       </main>
       <Footer />
+
+      {/* ── Create User Modal ────────────────────────────────────────────── */}
+      {showCreateModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-[100]"
+            onClick={() => !isCreating && setShowCreateModal(false)}
+          />
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <div className="bg-card border border-border rounded-xl shadow-elevation-xl w-full max-w-md">
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <Icon name="UserPlus" size={18} color="var(--color-primary)" />
+                  </div>
+                  <h3 className="text-base font-heading font-semibold text-foreground">Create New User</h3>
+                </div>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  disabled={isCreating}
+                  className="p-1.5 rounded-lg hover:bg-muted transition-smooth text-muted-foreground hover:text-foreground"
+                >
+                  <Icon name="X" size={18} />
+                </button>
+              </div>
+
+              {/* Modal body */}
+              <form onSubmit={handleCreateUser} className="px-6 py-5 space-y-4">
+
+                {/* Username */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Username <span className="text-error">*</span>
+                  </label>
+                  <input
+                    id="create-user-username"
+                    type="text"
+                    required
+                    value={createForm.username}
+                    onChange={(e) => setCreateForm(f => ({ ...f, username: e.target.value }))}
+                    placeholder="e.g. jdoe2025"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Email <span className="text-error">*</span>
+                  </label>
+                  <input
+                    id="create-user-email"
+                    type="email"
+                    required
+                    value={createForm.email}
+                    onChange={(e) => setCreateForm(f => ({ ...f, email: e.target.value }))}
+                    placeholder="user@university.edu"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                </div>
+
+                {/* Password */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Password <span className="text-error">*</span>
+                  </label>
+                  <input
+                    id="create-user-password"
+                    type="password"
+                    required
+                    value={createForm.password}
+                    onChange={(e) => setCreateForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="Minimum 8 characters"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                </div>
+
+                {/* Role */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Role <span className="text-error">*</span>
+                  </label>
+                  <select
+                    id="create-user-role"
+                    value={createForm.role_code}
+                    onChange={(e) => setCreateForm(f => ({ ...f, role_code: e.target.value }))}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  >
+                    <option value="STUDENT">Student</option>
+                    <option value="FACULTY">Faculty / Guide</option>
+                    <option value="HOD">Head of Department</option>
+                    <option value="ADMIN">Administrator</option>
+                  </select>
+                </div>
+
+                {/* Department */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Department</label>
+                  <input
+                    id="create-user-department"
+                    type="text"
+                    value={createForm.department}
+                    onChange={(e) => setCreateForm(f => ({ ...f, department: e.target.value }))}
+                    placeholder="e.g. Computer Science (optional)"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                </div>
+
+                {/* Inline error */}
+                {createError && (
+                  <div className="flex items-center gap-2 p-3 bg-error/10 border border-error/20 rounded-lg">
+                    <Icon name="AlertCircle" size={15} color="var(--color-error)" />
+                    <p className="text-xs text-error">{createError}</p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    disabled={isCreating}
+                    onClick={() => setShowCreateModal(false)}
+                    className="flex-1 px-4 py-2.5 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-muted transition-smooth disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    id="create-user-submit-btn"
+                    type="submit"
+                    disabled={isCreating}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-smooth disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isCreating ? (
+                      <>
+                        <Icon name="Loader2" size={15} color="currentColor" className="animate-spin" />
+                        Creating…
+                      </>
+                    ) : (
+                      <>
+                        <Icon name="UserPlus" size={15} color="currentColor" />
+                        Create User
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

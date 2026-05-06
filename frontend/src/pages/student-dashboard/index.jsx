@@ -11,7 +11,9 @@ import ActivityFeedItem from './components/ActivityFeedItem';
 import StatCard from './components/StatCard';
 import UpcomingDeadlineCard from './components/UpcomingDeadlineCard';
 import DocumentQuickUpload from './components/DocumentQuickUpload';
+import { useNavigate } from 'react-router-dom';
 import {
+  apiFetch,
   fetchStudentProject,
   fetchStudentProgress,
   getUserEmail,
@@ -181,6 +183,7 @@ const formatDate = (dateStr) => {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const StudentDashboard = () => {
+  const navigate = useNavigate();
   const [selectedView, setSelectedView] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -428,7 +431,32 @@ const StudentDashboard = () => {
                       ))}
                     </div>
 
-                    <ProjectStatusCard project={currentProject} />
+                    {/* ── No-project empty state (real users only) ────────── */}
+                    {!isDemo && !project ? (
+                      <div className="flex flex-col items-center justify-center gap-5 py-16 bg-card border border-border rounded-lg shadow-elevation-sm">
+                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                          <Icon name="FolderPlus" size={32} color="var(--color-primary)" />
+                        </div>
+                        <div className="text-center max-w-sm">
+                          <h2 className="text-xl font-heading font-semibold text-foreground mb-2">
+                            No project submitted yet
+                          </h2>
+                          <p className="text-sm text-muted-foreground">
+                            Get started by submitting your first project proposal. Your guide and the review committee will be notified automatically.
+                          </p>
+                        </div>
+                        <button
+                          id="start-project-proposal-btn"
+                          onClick={() => navigate('/student-project-proposal-form')}
+                          className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 transition-smooth shadow-elevation-sm"
+                        >
+                          <Icon name="Plus" size={18} color="currentColor" />
+                          Start Project Proposal
+                        </button>
+                      </div>
+                    ) : (
+                      <ProjectStatusCard project={currentProject} />
+                    )}
 
                     <div className="bg-card border border-border rounded-lg p-4 md:p-6 shadow-elevation-sm">
                       <div className="flex items-center justify-between mb-4">

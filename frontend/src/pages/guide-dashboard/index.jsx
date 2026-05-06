@@ -11,6 +11,7 @@ import WorkloadMetrics from './components/WorkloadMetrics';
 import Select from '../../components/ui/Select';
 import Icon from '../../components/AppIcon';
 import {
+  apiFetch,
   fetchMentoredProjects,
   isDemoSession,
   getUserEmail,
@@ -118,6 +119,16 @@ const GuideDashboard = () => {
   const [allStudents, setAllStudents] = useState([]);
   const [filteredStudents, setFilteredStudents] = useState([]);
 
+  // Real API state
+  const [mentoredProjects, setMentoredProjects] = useState([]);
+  const [approvedProjects, setApprovedProjects] = useState([]);
+
+  // Join requests for the selected project
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [joinRequestsLoading, setJoinRequestsLoading] = useState(false);
+  const [joinRequestsError, setJoinRequestsError] = useState('');
+  const [joinDecidingId, setJoinDecidingId] = useState(null);
+
   const isDemo = isDemoSession();
 
   const academicYearOptions = [
@@ -136,8 +147,13 @@ const GuideDashboard = () => {
 
     const load = async () => {
       try {
-        const projects = await fetchMentoredProjects();
-        const mapped = projects.map((p, i) => mapProjectToStudent(p, i));
+        const [mentored, approved] = await Promise.all([
+          fetchMentoredProjects().catch(() => []),
+          apiFetch('/faculty/projects/approved/').then(r => r?.results ?? r ?? []).catch(() => []),
+        ]);
+        setMentoredProjects(mentored || []);
+        setApprovedProjects(approved || []);
+        const mapped = (mentored || []).map((p, i) => mapProjectToStudent(p, i));
         setAllStudents(mapped);
         setFilteredStudents(mapped);
       } catch (e) {
@@ -151,7 +167,7 @@ const GuideDashboard = () => {
     };
 
     load();
-  }, [isDemo]);
+  }, [isDemo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard navigation
   useEffect(() => {
@@ -168,7 +184,7 @@ const GuideDashboard = () => {
     };
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [selectedStudentId, filteredStudents]);
+  }, [selectedStudentId, filteredStudents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSearch = (query) => {
     setSearchQuery(query);
@@ -205,6 +221,38 @@ const GuideDashboard = () => {
   };
 
   const selectedStudent = filteredStudents?.find((s) => s?.id === selectedStudentId);
+
+  // ── Fetch join requests whenever the selected project changes ─────────────
+  useEffect(() => {
+    if (isDemo || !selectedStudentId) {
+      setJoinRequests([]);
+      return;
+    }
+    setJoinRequestsLoading(true);
+    setJoinRequestsError('');
+    // Attempt to fetch pending join requests for this project
+    apiFetch(`/join-requests/?project=${selectedStudentId}`)
+      .then(res => {
+        setJoinRequests(res?.results ?? res ?? []);
+      })
+      .catch(() => setJoinRequests([]))
+      .finally(() => setJoinRequestsLoading(false));
+  }, [selectedStudentId, isDemo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Handle approve / reject a join request ────────────────────────────────
+  const handleJoinDecision = async (joinRequestId, action) => {
+    // action: 'approve' | 'reject'
+    setJoinDecidingId(joinRequestId);
+    try {
+      await apiFetch(`/join-requests/${joinRequestId}/${action}/`, { method: 'POST' });
+      // Optimistically remove from pending list
+      setJoinRequests(prev => prev.filter(jr => jr.id !== joinRequestId));
+    } catch (e) {
+      setJoinRequestsError(`Decision failed: ${e?.message || 'Unknown error'}`);
+    } finally {
+      setJoinDecidingId(null);
+    }
+  };
 
   const workloadMetrics = {
     totalAdvisees: allStudents.length,
@@ -316,10 +364,101 @@ const GuideDashboard = () => {
                 </div>
               </div>
 
-              <div className="lg:col-span-3">
-                <div className="bg-card border border-border rounded-lg shadow-elevation-md h-[calc(100vh-28rem)] overflow-hidden">
+              <div className="lg:col-span-3 flex flex-col gap-4">
+                <div className="bg-card border border-border rounded-lg shadow-elevation-md overflow-hidden" style={{ height: 'calc(50vh - 8rem)' }}>
                   <QuickActionsPanel selectedStudent={selectedStudent} />
                 </div>
+
+                {/* ── Join Requests panel ───────────────────────────────── */}
+                {!isDemo && (
+                  <div className="bg-card border border-border rounded-lg shadow-elevation-md flex flex-col" style={{ height: 'calc(50vh - 8rem)' }}>
+                    <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+                      <Icon name="UserCheck" size={16} color="var(--color-primary)" />
+                      <h3 className="text-sm font-heading font-semibold text-foreground flex-1">
+                        Join Requests
+                      </h3>
+                      {selectedStudent && (
+                        <span className="text-xs text-muted-foreground">
+                          {selectedStudent.projectTitle?.slice(0, 20)}{selectedStudent.projectTitle?.length > 20 ? '…' : ''}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-3">
+                      {!selectedStudent ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center gap-2 py-6">
+                          <Icon name="MousePointerClick" size={28} color="var(--color-muted-foreground)" />
+                          <p className="text-xs text-muted-foreground">Select a project to view join requests</p>
+                        </div>
+                      ) : joinRequestsLoading ? (
+                        <div className="flex items-center justify-center h-full gap-2 text-sm text-muted-foreground">
+                          <Icon name="Loader2" size={16} color="currentColor" className="animate-spin" />
+                          Loading…
+                        </div>
+                      ) : joinRequestsError ? (
+                        <div className="p-3 bg-error/10 border border-error/20 rounded-lg">
+                          <p className="text-xs text-error">{joinRequestsError}</p>
+                        </div>
+                      ) : joinRequests.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center gap-2 py-6">
+                          <Icon name="CheckCircle" size={28} color="var(--color-success)" />
+                          <p className="text-xs text-muted-foreground">No pending join requests</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {joinRequests.map((jr) => {
+                            const isDeciding = joinDecidingId === jr.id;
+                            return (
+                              <div
+                                key={jr.id}
+                                className="bg-background border border-border rounded-lg p-3 flex flex-col gap-2"
+                              >
+                                {/* Student info */}
+                                <div>
+                                  <p className="text-xs font-semibold text-foreground truncate">
+                                    {jr.student_name || jr.student_email || `Student #${jr.student}`}
+                                  </p>
+                                  {jr.student_email && (
+                                    <p className="text-xs text-muted-foreground truncate">{jr.student_email}</p>
+                                  )}
+                                  {jr.message && (
+                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2 italic">
+                                      "{jr.message}"
+                                    </p>
+                                  )}
+                                </div>
+                                {/* Action buttons */}
+                                <div className="flex gap-2">
+                                  <button
+                                    id={`approve-join-${jr.id}`}
+                                    disabled={isDeciding}
+                                    onClick={() => handleJoinDecision(jr.id, 'approve')}
+                                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-xs font-semibold bg-success/10 text-success border border-success/20 hover:bg-success hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {isDeciding
+                                      ? <Icon name="Loader2" size={12} color="currentColor" className="animate-spin" />
+                                      : <Icon name="Check" size={12} color="currentColor" />
+                                    }
+                                    Approve
+                                  </button>
+                                  <button
+                                    id={`reject-join-${jr.id}`}
+                                    disabled={isDeciding}
+                                    onClick={() => handleJoinDecision(jr.id, 'reject')}
+                                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-xs font-semibold bg-error/10 text-error border border-error/20 hover:bg-error hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <Icon name="X" size={12} color="currentColor" />
+                                    Reject
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

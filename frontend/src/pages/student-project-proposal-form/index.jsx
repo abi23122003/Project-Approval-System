@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getUserEmail } from '../../utils/api';
+import { getUserEmail, apiFetch } from '../../utils/api';
 import Header from '../../components/ui/Header';
 import Breadcrumbs from '../../components/ui/Breadcrumbs';
 import QuickActions from '../../components/ui/QuickActions';
@@ -60,6 +60,8 @@ const StudentProjectProposalForm = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDraftPanelOpen, setIsDraftPanelOpen] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const steps = [
     { id: 'basic', label: 'Basic Info', validation: 'Required fields' },
@@ -210,10 +212,26 @@ const StudentProjectProposalForm = () => {
   };
 
   const handleSubmit = async () => {
-    // TODO: POST to /api/student/project/ with formData
-    console.log('Submitting proposal:', formData);
-    setShowSubmitModal(false);
-    navigate('/student-dashboard');
+    setIsSubmitting(true);
+    setSubmitError('');
+    try {
+      await apiFetch('/student/project/', {
+        method: 'POST',
+        body: JSON.stringify({
+          title:          formData.projectTitle,
+          abstract:       formData.abstract,
+          department:     formData.department,
+          mentor_faculty: formData.guide,
+          status:         'SUBMITTED',
+        }),
+      });
+      setShowSubmitModal(false);
+      navigate('/student-dashboard');
+    } catch (e) {
+      setSubmitError(e?.message || 'Submission failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const renderStepContent = () => {
@@ -384,20 +402,28 @@ const StudentProjectProposalForm = () => {
                 <Button
                   variant="outline"
                   fullWidth
-                  onClick={() => setShowSubmitModal(false)}
+                  disabled={isSubmitting}
+                  onClick={() => { setShowSubmitModal(false); setSubmitError(''); }}
                 >
                   Cancel
                 </Button>
                 <Button
                   variant="default"
                   fullWidth
-                  iconName="Send"
+                  iconName={isSubmitting ? 'Loader2' : 'Send'}
                   iconPosition="right"
+                  disabled={isSubmitting}
                   onClick={handleSubmit}
                 >
-                  Confirm Submit
+                  {isSubmitting ? 'Submitting…' : 'Confirm Submit'}
                 </Button>
               </div>
+              {submitError && (
+                <p className="mt-3 text-xs text-error flex items-center gap-1.5">
+                  <Icon name="AlertCircle" size={14} color="currentColor" />
+                  {submitError}
+                </p>
+              )}
             </div>
           </div>
         </>

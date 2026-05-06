@@ -5,12 +5,14 @@ import RoleCard from './components/RoleCard';
 import TestAccountCard from './components/TestAccountCard';
 import SecurityIndicator from './components/SecurityIndicator';
 import LoginForm from './components/LoginForm';
+import { saveTokens, clearSession } from '../../utils/api';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api';
 
 const roleToBackendRoleCode = {
   student: 'STUDENT',
   guide: 'FACULTY',
+  // reviewer intentionally mapped to FACULTY (merged roles)
   reviewer: 'FACULTY',
   hod: 'HOD',
   admin: 'ADMIN'
@@ -26,17 +28,10 @@ const roles = [
   },
   {
     value: 'guide',
-    label: 'Faculty Guide',
+    label: 'Guide / Reviewer',
     icon: 'Users',
-    description: 'Review student projects, provide feedback, monitor progress, and approve project milestones for your assigned students.',
+    description: 'Faculty mentor or project reviewer',
     route: '/guide-dashboard'
-  },
-  {
-    value: 'reviewer',
-    label: 'Review Committee',
-    icon: 'ClipboardCheck',
-    description: 'Evaluate project submissions, score proposals, and provide comprehensive feedback for academic quality assurance.',
-    route: '/reviewer-dashboard'
   },
   {
     value: 'hod',
@@ -57,7 +52,6 @@ const roles = [
 const demoAccounts = [
   { email: 'student@demo.edu', password: 'demo123', roleValue: 'student' },
   { email: 'guide@demo.edu', password: 'demo123', roleValue: 'guide' },
-  { email: 'reviewer@demo.edu', password: 'demo123', roleValue: 'reviewer' },
   { email: 'hod@demo.edu', password: 'demo123', roleValue: 'hod' },
   { email: 'admin@demo.edu', password: 'demo123', roleValue: 'admin' }
 ];
@@ -90,8 +84,7 @@ const saveSession = (roleValue, email, accessToken, refreshToken, navigate) => {
   try {
     window.localStorage.setItem('aps.role', roleValue);
     window.localStorage.setItem('aps.userEmail', email || '');
-    window.localStorage.setItem('aps.accessToken', accessToken || '');
-    window.localStorage.setItem('aps.refreshToken', refreshToken || '');
+    saveTokens(accessToken || '', refreshToken || '');
   } catch {
     // ignore storage failures
   }
@@ -114,6 +107,18 @@ const AuthenticationRoleSelection = () => {
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
   const [forgotPasswordMessage, setForgotPasswordMessage] = useState('');
+  const [authMode, setAuthMode] = useState('login');
+
+  const handleModeChange = (newMode) => {
+    setAuthMode(newMode);
+    if (newMode === 'register' && selectedRole && ['hod', 'admin'].includes(selectedRole.value)) {
+      setSelectedRole(null);
+    }
+  };
+
+  const visibleRoles = authMode === 'register'
+    ? roles.filter(r => !['hod', 'admin'].includes(r.value))
+    : roles;
 
   const securityIndicators = [
     { type: 'ldap', label: 'LDAP Connected', status: 'active' },
@@ -136,13 +141,7 @@ const AuthenticationRoleSelection = () => {
     );
 
     if (matchedDemo) {
-      // Demo account login - skip backend entirely
-      const demoRole = matchedDemo.roleValue;
-      // Generate fake tokens for demo
-      const fakeDemoToken = 'demo.token.' + btoa(JSON.stringify({ role_code: roleToBackendRoleCode[demoRole] }));
-      saveSession(demoRole, formData?.username, fakeDemoToken, fakeDemoToken, navigate);
-      setIsLoading(false);
-      return;
+      return handleDemoLogin(formData?.username, formData?.password);
     }
 
     // Real backend login
@@ -240,18 +239,51 @@ const AuthenticationRoleSelection = () => {
     }, 3000);
   };
 
-  const handleQuickLogin = (account) => {
-    const role = roles?.find(r => r?.value === account?.roleValue);
-    setSelectedRole(role);
+  const handleDemoLogin = async (email, password) => {
+    setIsLoading(true);
     setLoginError('');
-    
-    setTimeout(() => {
-      handleLogin({
-        username: account?.email,
-        password: account?.password,
-        rememberDevice: false
+    try {
+      // Map demo emails to their actual usernames in the database
+      const demoEmailToUsername = {
+        'student@demo.edu': 'student_demo',
+        'guide@demo.edu': 'guide_demo',
+        'hod@demo.edu': 'hod_demo',
+        'admin@demo.edu': 'admin_demo',
+      };
+      const username = demoEmailToUsername[email] || email;
+
+      const res = await fetch(`${API_BASE}/auth/login/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
       });
-    }, 100);
+      
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Login failed');
+      
+      const payload = decodeJwtPayload(data.access);
+      if (!payload || !payload.role_code) {
+        throw new Error('Invalid token payload received');
+      }
+
+      const backendRoleCode = payload.role_code.toLowerCase();
+      localStorage.setItem('aps.access', data.access);
+      localStorage.setItem('aps.refresh', data.refresh);
+      localStorage.setItem('aps.role', backendRoleCode);
+      
+      // Store a basic user object since backend doesn't return one
+      localStorage.setItem('aps.user', JSON.stringify({
+        email: email,
+        role_code: payload.role_code,
+        user_id: payload.user_id
+      }));
+      
+      navigate(`/${backendRoleCode}-dashboard`);
+    } catch (e) {
+      setLoginError('Demo login failed: ' + e.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -299,7 +331,7 @@ const AuthenticationRoleSelection = () => {
                     password: account?.password,
                     roleValue: account?.roleValue
                   }}
-                  onQuickLogin={handleQuickLogin}
+                  onQuickLogin={(acc) => handleDemoLogin(acc.email, acc.password)}
                 />
               ))}
             </div>
@@ -311,7 +343,7 @@ const AuthenticationRoleSelection = () => {
                 Select Your Role
               </h2>
               <div className="space-y-3 md:space-y-4">
-                {roles?.map((role) => (
+                {visibleRoles?.map((role) => (
                   <RoleCard
                     key={role?.value}
                     role={role}
@@ -320,6 +352,11 @@ const AuthenticationRoleSelection = () => {
                   />
                 ))}
               </div>
+              {authMode === 'register' && (
+                <div className="mt-4 text-xs text-muted-foreground text-center">
+                  HOD and Admin accounts must be created by an administrator.
+                </div>
+              )}
             </div>
 
             <div className="bg-card border border-border rounded-xl shadow-elevation-lg p-6 md:p-8 h-full flex flex-col">
@@ -337,6 +374,8 @@ const AuthenticationRoleSelection = () => {
                 defaultUsername={selectedRole?.value === 'admin' ? devDefaultAdminEmail : undefined}
                 defaultPassword={selectedRole?.value === 'admin' ? devDefaultAdminPassword : undefined}
                 autoSubmit={selectedRole?.value === 'admin' ? devAutoLogin : false}
+                mode={authMode}
+                onModeChange={handleModeChange}
               />
             </div>
           </div>

@@ -53,11 +53,14 @@ const NotificationCenter = () => {
 
   useEffect(() => {
     const isDemo = isDemoSession();
-    if (isDemo) {
+    const role = getRole();
+    
+    if (isDemo || role !== 'admin') {
       setNotifications(DEMO_NOTIFICATIONS);
       setLoading(false);
       return;
     }
+
     fetchAuditEvents()
       .then(events => {
         if (events && events.length > 0) {

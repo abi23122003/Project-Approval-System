@@ -12,7 +12,6 @@ import StudentDashboard from './pages/student-dashboard';
 import AdminDashboard from './pages/admin-dashboard';
 import HodAnalyticsDashboard from './pages/hod-analytics-dashboard';
 import NotificationCenter from './pages/notification-center';
-import ReviewerDashboard from './pages/reviewer-dashboard';
 import SystemConfigurationPanel from './pages/system-configuration-panel';
 
 const ROLE_KEY = 'aps.role';
@@ -69,7 +68,7 @@ const Routes = () => {
           </RequireRole>
         } />
         <Route path="/guide-dashboard" element={
-          <RequireRole allow={["guide"]}>
+          <RequireRole allow={["guide", "reviewer"]}>
             <GuideDashboard />
           </RequireRole>
         } />
@@ -100,8 +99,8 @@ const Routes = () => {
           </RequireRole>
         } />
         <Route path="/reviewer-dashboard" element={
-          <RequireRole allow={["reviewer"]}>
-            <ReviewerDashboard />
+          <RequireRole allow={["reviewer", "guide"]}>
+            <GuideDashboard />
           </RequireRole>
         } />
         <Route path="/system-configuration-panel" element={
