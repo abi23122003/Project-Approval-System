@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import RoleCard from './components/RoleCard';
@@ -166,7 +166,7 @@ const AuthenticationRoleSelection = () => {
       const refresh = data?.refresh;
       const payload = decodeJwtPayload(access);
       const backendRoleCode = payload?.role_code;
-      const expectedRoleCode = roleToBackendRoleCode?.[selectedRole?.value];
+      const expectedRoleCode = roleMap?.[selectedRole?.value];
 
       if (expectedRoleCode && backendRoleCode && backendRoleCode !== expectedRoleCode) {
         setLoginError('Role mismatch: your account role does not match the selected role.');

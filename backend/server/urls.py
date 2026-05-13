@@ -21,7 +21,7 @@ from django.http import HttpResponse
 
 urlpatterns = [
     path('favicon.ico', lambda request: HttpResponse(status=204)),
-    path('', RedirectView.as_view(url='/api/', permanent=False)),
+    path('', RedirectView.as_view(url='/api/health/', permanent=False)),
     path('admin/', admin.site.urls),
     path('api/', include('core.urls')),
 ]

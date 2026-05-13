@@ -1,0 +1,7 @@
+{
+  "student": "STUDENT",
+  "guide": "FACULTY",
+  "reviewer": "FACULTY",
+  "hod": "HOD",
+  "admin": "ADMIN"
+}

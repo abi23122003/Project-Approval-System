@@ -18,6 +18,16 @@ from .models import (
     ProjectProgressUpdate,
     ProjectStatusHistory,
 )
+
+# Import configuration constants
+from .config import (
+    PUBLIC_ENDPOINT_PERMISSIONS,
+    DISALLOWED_REGISTRATION_ROLES,
+    PAGE_SIZE_QUERY_PARAM,
+    MAX_PAGE_SIZE,
+    HEALTH_RESPONSE,
+    HOD_SUBMITTED_STATUS_CODES,
+)
 from .permissions import RBACPermission
 from .serializers import (
     AuditEventSerializer,
@@ -57,23 +67,23 @@ User = get_user_model()
 
 
 class StandardResultsSetPagination(PageNumberPagination):
-    page_size_query_param = "page_size"
-    max_page_size = 100
+    page_size_query_param = PAGE_SIZE_QUERY_PARAM
+    max_page_size = MAX_PAGE_SIZE
 
 
 class LoginView(CustomTokenObtainPairView):
-    permission_classes = []
+    permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
 
 
 class RegisterView(APIView):
-    permission_classes = []
+    permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
 
     def post(self, request):
         serializer = PublicRegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         role_obj = serializer.validated_data["role_code"]
-        if role_obj.role_code in {Role.ADMIN, Role.HOD}:
+        if role_obj.role_code in DISALLOWED_REGISTRATION_ROLES:
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         email = serializer.validated_data["email"].strip()
@@ -92,10 +102,10 @@ class RegisterView(APIView):
 
 
 class HealthView(APIView):
-    permission_classes = []
+    permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
 
     def get(self, request):
-        return Response({"status": "ok"})
+        return Response(HEALTH_RESPONSE)
 
 
 class UsersView(APIView):
@@ -160,7 +170,7 @@ class HodSubmittedProjectsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = Project.objects.filter(status__status_code__in=["SUBMITTED", "UNDER_REVIEW"]).order_by("-created_at")
+        queryset = Project.objects.filter(status__status_code__in=HOD_SUBMITTED_STATUS_CODES).order_by("-created_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectListSerializer(page, many=True)
