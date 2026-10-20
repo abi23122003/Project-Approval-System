@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 from django.urls import re_path
-from rest_framework_simplejwt.views import TokenRefreshView
+from .auth import ActiveProfileTokenRefreshView
 
 from .views import (
     AdminAuditEventsView,
     AdminProjectsView,
+    AdminUserDepartmentAssignmentView,
     AdminUsersView,
     FacultyApprovedProjectsView,
     FacultyMentoredProjectsView,
     FacultyProjectCommentsView,
     FacultyProjectProgressView,
+    FacultyReviewQueueView,
+    DepartmentListView,
     HealthView,
     HodApprovalsView,
     HodDecisionView,
     HodLifecycleView,
     HodProgressView,
+    HodFacultyListView,
+    HodProjectDetailView,
     HodSubmittedProjectsView,
     JoinRequestApproveView,
     JoinRequestCancelView,
@@ -27,6 +32,7 @@ from .views import (
     ProgressUpdateView,
     StudentApprovedProjectsView,
     StudentJoinRequestsView,
+    StudentMentorListView,
     StudentOwnProjectProgressView,
     StudentProjectUpdateView,
     StudentProjectView,
@@ -38,7 +44,9 @@ urlpatterns = [
 
     re_path(r"^auth/login/?$", LoginView.as_view(), name="login"),
     re_path(r"^auth/register/?$", RegisterView.as_view(), name="register"),
-    re_path(r"^auth/token/refresh/?$", TokenRefreshView.as_view(), name="token-refresh"),
+    re_path(r"^auth/token/refresh/?$", ActiveProfileTokenRefreshView.as_view(), name="token-refresh"),
+    re_path(r"^departments/?$", DepartmentListView.as_view(), name="departments"),
+    re_path(r"^student/mentors/?$", StudentMentorListView.as_view(), name="student-mentors"),
     re_path(r"^users/?$", UsersView.as_view(), name="user-create"),
 
 
@@ -46,6 +54,7 @@ urlpatterns = [
     re_path(r"^student/project/(?P<project_id>\d+)/?$", StudentProjectUpdateView.as_view(), name="student-project-update"),
 
     re_path(r"^hod/projects/?$", HodSubmittedProjectsView.as_view(), name="hod-projects"),
+    re_path(r"^hod/projects/(?P<project_id>\d+)/?$", HodProjectDetailView.as_view(), name="hod-project-detail"),
     re_path(r"^hod/projects/(?P<project_id>\d+)/decision/?$", HodDecisionView.as_view(), name="hod-decision"),
 
     re_path(r"^join-requests/?$", JoinRequestCreateView.as_view(), name="join-request-create"),
@@ -57,15 +66,18 @@ urlpatterns = [
     re_path(r"^progress-updates/(?P<progress_update_id>\d+)/documents/?$", ProgressDocumentUploadView.as_view(), name="progress-document"),
 
     re_path(r"^admin/users/?$", AdminUsersView.as_view(), name="admin-users"),
+    re_path(r"^admin/users/(?P<user_id>\d+)/department/?$", AdminUserDepartmentAssignmentView.as_view(), name="admin-user-department"),
     re_path(r"^admin/projects/?$", AdminProjectsView.as_view(), name="admin-projects"),
     re_path(r"^admin/audit-events/?$", AdminAuditEventsView.as_view(), name="admin-audit"),
 
     re_path(r"^hod/lifecycle/(?P<project_id>\d+)/?$", HodLifecycleView.as_view(), name="hod-lifecycle"),
     re_path(r"^hod/approvals/?$", HodApprovalsView.as_view(), name="hod-approvals"),
     re_path(r"^hod/progress/?$", HodProgressView.as_view(), name="hod-progress"),
+    re_path(r"^hod/faculty/?$", HodFacultyListView.as_view(), name="hod-faculty"),
 
     re_path(r"^faculty/projects/approved/?$", FacultyApprovedProjectsView.as_view(), name="faculty-approved-projects"),
     re_path(r"^faculty/projects/mentored/?$", FacultyMentoredProjectsView.as_view(), name="faculty-mentored-projects"),
+    re_path(r"^faculty/projects/review-queue/?$", FacultyReviewQueueView.as_view(), name="faculty-review-queue"),
     re_path(r"^faculty/projects/(?P<project_id>\d+)/comments/?$", FacultyProjectCommentsView.as_view(), name="faculty-project-comments"),
     re_path(r"^faculty/projects/(?P<project_id>\d+)/progress/?$", FacultyProjectProgressView.as_view(), name="faculty-project-progress"),
 

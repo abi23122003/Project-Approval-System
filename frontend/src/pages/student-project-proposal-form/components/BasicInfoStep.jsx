@@ -3,7 +3,7 @@ import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
 
-const BasicInfoStep = ({ formData, onChange, errors }) => {
+const BasicInfoStep = ({ formData, onChange, errors, mentors = [], mentorLoadError = '' }) => {
   const projectTypes = [
     { value: 'thesis', label: 'Master\'s Thesis' },
     { value: 'capstone', label: 'Capstone Project' },
@@ -11,25 +11,10 @@ const BasicInfoStep = ({ formData, onChange, errors }) => {
     { value: 'dissertation', label: 'PhD Dissertation' }
   ];
 
-  const departments = [
-    { value: 'cs', label: 'Computer Science' },
-    { value: 'ee', label: 'Electrical Engineering' },
-    { value: 'me', label: 'Mechanical Engineering' },
-    { value: 'ce', label: 'Civil Engineering' },
-    { value: 'bio', label: 'Biotechnology' }
-  ];
-
   const academicYears = [
     { value: '2025-26', label: '2025-2026' },
     { value: '2024-25', label: '2024-2025' },
     { value: '2023-24', label: '2023-2024' }
-  ];
-
-  const guides = [
-    { value: 'dr-smith', label: 'Dr. Sarah Smith - Computer Science' },
-    { value: 'dr-johnson', label: 'Dr. Michael Johnson - Software Engineering' },
-    { value: 'dr-williams', label: 'Dr. Emily Williams - Data Science' },
-    { value: 'dr-brown', label: 'Dr. Robert Brown - Artificial Intelligence' }
   ];
 
   return (
@@ -77,14 +62,13 @@ const BasicInfoStep = ({ formData, onChange, errors }) => {
         />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        <Select
-          label="Department"
-          options={departments}
-          value={formData?.department || ''}
-          onChange={(value) => onChange('department', value)}
-          placeholder="Select your department"
-          required
-          error={errors?.department}
+        <Input
+          label="Assigned Department"
+          type="text"
+          value={formData?.departmentName || ''}
+          disabled
+          description="Assigned to your student account"
+          error={errors?.department || (!formData?.departmentName ? 'Your account needs an assigned department.' : '')}
         />
         <Select
           label="Academic Year"
@@ -119,11 +103,11 @@ const BasicInfoStep = ({ formData, onChange, errors }) => {
       />
       <Select
         label="Preferred Faculty Guide"
-        options={guides}
+        options={mentors}
         value={formData?.guide || ''}
         onChange={(value) => onChange('guide', value)}
         placeholder="Select a faculty guide"
-        description="Guide assignment is subject to availability and approval"
+        description={mentorLoadError || 'Only active faculty in your department are listed.'}
         searchable
         required
         error={errors?.guide}

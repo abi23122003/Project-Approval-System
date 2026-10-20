@@ -62,6 +62,29 @@ const StudentProjectProposalForm = () => {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [mentors, setMentors] = useState([]);
+  const [mentorLoadError, setMentorLoadError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    apiFetch('/student/mentors/')
+      .then(data => {
+        if (!mounted) return;
+        setMentors((data?.mentors || []).map(mentor => ({
+          value: String(mentor.id),
+          label: mentor.name,
+        })));
+        setFormData(previous => ({
+          ...previous,
+          department: data?.department?.id ? String(data.department.id) : '',
+          departmentName: data?.department?.name || '',
+        }));
+      })
+      .catch(() => {
+        if (mounted) setMentorLoadError('Could not load department and faculty assignments. Please try again.');
+      });
+    return () => { mounted = false; };
+  }, []);
 
   const steps = [
     { id: 'basic', label: 'Basic Info', validation: 'Required fields' },
@@ -220,9 +243,7 @@ const StudentProjectProposalForm = () => {
         body: JSON.stringify({
           title:          formData.projectTitle,
           abstract:       formData.abstract,
-          department:     formData.department,
           mentor_faculty: formData.guide,
-          status:         'SUBMITTED',
         }),
       });
       setShowSubmitModal(false);
@@ -237,7 +258,7 @@ const StudentProjectProposalForm = () => {
   const renderStepContent = () => {
     switch (steps?.[currentStep]?.id) {
       case 'basic':
-        return <BasicInfoStep formData={formData} onChange={handleChange} errors={errors} />;
+        return <BasicInfoStep formData={formData} onChange={handleChange} errors={errors} mentors={mentors} mentorLoadError={mentorLoadError} />;
       case 'objectives':
         return <ObjectivesStep formData={formData} onChange={handleChange} errors={errors} />;
       case 'methodology':

@@ -20,7 +20,7 @@ const LoginForm = ({
   const [formData, setFormData] = useState({
     username: defaultUsername || '',
     password: defaultPassword || '',
-    rememberDevice: false
+    rememberDevice: false,
   });
 
   const [validationErrors, setValidationErrors] = useState({});
@@ -82,7 +82,7 @@ const LoginForm = ({
   };
 
   const usernamePlaceholder = mode === 'login' 
-    ? 'student@demo.edu' 
+    ? 'name@example.edu'
     : 'your@email.edu';
 
   return (

@@ -1,22 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import RoleCard from './components/RoleCard';
-import TestAccountCard from './components/TestAccountCard';
 import SecurityIndicator from './components/SecurityIndicator';
 import LoginForm from './components/LoginForm';
-import { saveTokens, clearSession } from '../../utils/api';
+import { formatApiError, saveTokens, clearSession } from '../../utils/api';
+import roleToBackendRoleCode from '../../config/roleMap.json';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api';
-
-const roleToBackendRoleCode = {
-  student: 'STUDENT',
-  guide: 'FACULTY',
-  // reviewer intentionally mapped to FACULTY (merged roles)
-  reviewer: 'FACULTY',
-  hod: 'HOD',
-  admin: 'ADMIN'
-};
 
 const roles = [
   {
@@ -49,13 +40,6 @@ const roles = [
   }
 ];
 
-const demoAccounts = [
-  { email: 'student@demo.edu', password: 'demo123', roleValue: 'student' },
-  { email: 'guide@demo.edu', password: 'demo123', roleValue: 'guide' },
-  { email: 'hod@demo.edu', password: 'demo123', roleValue: 'hod' },
-  { email: 'admin@demo.edu', password: 'demo123', roleValue: 'admin' }
-];
-
 const decodeJwtPayload = (jwt) => {
   try {
     const payloadPart = jwt?.split('.')?.[1];
@@ -81,14 +65,17 @@ const parseBoolEnv = (value) => {
 
 const saveSession = (roleValue, email, accessToken, refreshToken, navigate) => {
   const roleRoute = roles?.find(r => r?.value === roleValue)?.route;
+  if (!roleRoute || !accessToken || !refreshToken) throw new Error('Invalid authentication session. Please sign in again.');
+  clearSession(false);
   try {
     window.localStorage.setItem('aps.role', roleValue);
     window.localStorage.setItem('aps.userEmail', email || '');
-    saveTokens(accessToken || '', refreshToken || '');
-  } catch {
-    // ignore storage failures
+    saveTokens(accessToken, refreshToken);
+  } catch (error) {
+    clearSession(false);
+    throw new Error('Unable to save the session in browser storage.');
   }
-  navigate(roleRoute || '/student-dashboard');
+  navigate(roleRoute);
 };
 
 const AuthenticationRoleSelection = () => {
@@ -103,21 +90,21 @@ const AuthenticationRoleSelection = () => {
   const [selectedRole, setSelectedRole] = useState(initialRole);
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [showTestAccounts, setShowTestAccounts] = useState(false);
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
   const [forgotPasswordMessage, setForgotPasswordMessage] = useState('');
   const [authMode, setAuthMode] = useState('login');
+  const submissionLock = useRef(false);
 
   const handleModeChange = (newMode) => {
     setAuthMode(newMode);
-    if (newMode === 'register' && selectedRole && ['hod', 'admin'].includes(selectedRole.value)) {
-      setSelectedRole(null);
+    if (newMode === 'register') {
+      setSelectedRole(roles.find(role => role.value === 'student'));
     }
   };
 
   const visibleRoles = authMode === 'register'
-    ? roles.filter(r => !['hod', 'admin'].includes(r.value))
+    ? roles.filter(r => r.value === 'student')
     : roles;
 
   const securityIndicators = [
@@ -132,26 +119,24 @@ const AuthenticationRoleSelection = () => {
   };
 
   const handleLogin = async (formData) => {
+    if (submissionLock.current) return;
+    const expectedRoleCode = roleToBackendRoleCode?.[selectedRole?.value];
+    if (!expectedRoleCode) {
+      setLoginError('Please select a supported login role.');
+      return;
+    }
+    submissionLock.current = true;
     setIsLoading(true);
     setLoginError('');
-
-    // Check if credentials match demo accounts
-    const matchedDemo = demoAccounts?.find(
-      account => account.email === formData?.username && account.password === formData?.password
-    );
-
-    if (matchedDemo) {
-      return handleDemoLogin(formData?.username, formData?.password);
-    }
-
-    // Real backend login
+    clearSession(false);
     try {
       const resp = await fetch(`${API_BASE}/auth/login/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: formData?.username,
-          password: formData?.password
+          password: formData?.password,
+          expected_role: expectedRoleCode
         })
       });
 
@@ -166,33 +151,47 @@ const AuthenticationRoleSelection = () => {
       const refresh = data?.refresh;
       const payload = decodeJwtPayload(access);
       const backendRoleCode = payload?.role_code;
-      const expectedRoleCode = roleMap?.[selectedRole?.value];
-
-      if (expectedRoleCode && backendRoleCode && backendRoleCode !== expectedRoleCode) {
+      const supportedRoleCodes = new Set(Object.values(roleToBackendRoleCode));
+      if (!access || !refresh || !payload || !Number.isFinite(Number(payload.exp)) || !payload.user_id || !backendRoleCode || !supportedRoleCodes.has(backendRoleCode) || !data?.user || Number(data.user.id) !== Number(payload.user_id) || data.user.role_code !== backendRoleCode) {
+        setLoginError('The server returned an invalid authentication response. Please contact support.');
+        return;
+      }
+      if (backendRoleCode !== expectedRoleCode) {
         setLoginError('Role mismatch: your account role does not match the selected role.');
         return;
       }
 
-      saveSession(selectedRole?.value, formData?.username, access, refresh, navigate);
-    } catch {
+      saveSession(selectedRole.value, data.user.email || data.user.username, access, refresh, navigate);
+    } catch (error) {
+      if (error?.message?.startsWith('Invalid authentication')) {
+        setLoginError(error.message);
+        return;
+      }
+      if (error?.message?.includes('browser storage')) {
+        setLoginError(error.message);
+        return;
+      }
       setLoginError('Login failed. Ensure the backend is running on http://localhost:8000 and the frontend can reach /api (Vite proxy).');
     } finally {
+      submissionLock.current = false;
       setIsLoading(false);
     }
   };
 
   const handleRegister = async (formData) => {
     if (!selectedRole?.value) return;
+    if (submissionLock.current) return;
+    submissionLock.current = true;
     setIsLoading(true);
     setLoginError('');
 
     const email = (formData?.username || '').trim();
     if (!email.includes('@')) {
       setLoginError('Please enter a valid email to create an account.');
+      submissionLock.current = false;
       setIsLoading(false);
       return;
     }
-
     try {
       const resp = await fetch(`${API_BASE}/auth/register/`, {
         method: 'POST',
@@ -200,21 +199,22 @@ const AuthenticationRoleSelection = () => {
         body: JSON.stringify({
           email,
           password: formData?.password,
-          role_code: roleToBackendRoleCode?.[selectedRole?.value]
+          role_code: roleToBackendRoleCode?.[selectedRole?.value],
         })
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        const message = data?.detail || 'Account creation failed. Try a different email.';
+        const message = formatApiError(data, 'Account creation failed. Try a different email.');
         setLoginError(message);
         return;
       }
 
-      // Auto-login after successful registration
-      await handleLogin({ username: email, password: formData?.password, rememberDevice: false });
+      setLoginError('Account created. An administrator must assign your department before you can submit a project.');
+      setAuthMode('login');
     } catch {
       setLoginError('Account creation failed. Ensure the backend is running on http://localhost:8000 and the frontend can reach /api (Vite proxy).');
     } finally {
+      submissionLock.current = false;
       setIsLoading(false);
     }
   };
@@ -230,60 +230,7 @@ const AuthenticationRoleSelection = () => {
       setForgotPasswordMessage('Please enter a valid email address.');
       return;
     }
-    // Fake a successful password reset request
-    setForgotPasswordMessage('Password reset link sent to ' + email + '. Check your email for instructions.');
-    setTimeout(() => {
-      setShowForgotPasswordModal(false);
-      setForgotPasswordEmail('');
-      setForgotPasswordMessage('');
-    }, 3000);
-  };
-
-  const handleDemoLogin = async (email, password) => {
-    setIsLoading(true);
-    setLoginError('');
-    try {
-      // Map demo emails to their actual usernames in the database
-      const demoEmailToUsername = {
-        'student@demo.edu': 'student_demo',
-        'guide@demo.edu': 'guide_demo',
-        'hod@demo.edu': 'hod_demo',
-        'admin@demo.edu': 'admin_demo',
-      };
-      const username = demoEmailToUsername[email] || email;
-
-      const res = await fetch(`${API_BASE}/auth/login/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || 'Login failed');
-      
-      const payload = decodeJwtPayload(data.access);
-      if (!payload || !payload.role_code) {
-        throw new Error('Invalid token payload received');
-      }
-
-      const backendRoleCode = payload.role_code.toLowerCase();
-      localStorage.setItem('aps.access', data.access);
-      localStorage.setItem('aps.refresh', data.refresh);
-      localStorage.setItem('aps.role', backendRoleCode);
-      
-      // Store a basic user object since backend doesn't return one
-      localStorage.setItem('aps.user', JSON.stringify({
-        email: email,
-        role_code: payload.role_code,
-        user_id: payload.user_id
-      }));
-      
-      navigate(`/${backendRoleCode}-dashboard`);
-    } catch (e) {
-      setLoginError('Demo login failed: ' + e.message);
-    } finally {
-      setIsLoading(false);
-    }
+    setForgotPasswordMessage('Password reset is not configured. Contact your administrator to reset your password.');
   };
 
   return (
@@ -302,39 +249,6 @@ const AuthenticationRoleSelection = () => {
             <p className="text-sm md:text-base lg:text-lg text-muted-foreground max-w-2xl mx-auto">
               Streamlined academic project management for students, faculty, and administrators
             </p>
-          </div>
-
-          {/* Demo Accounts Banner */}
-          <div className="mb-6 md:mb-8 bg-blue-50 border border-blue-200 rounded-xl shadow-elevation-md p-4 md:p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base md:text-lg font-heading font-semibold text-foreground flex items-center gap-2">
-                <Icon name="Zap" size={20} color="var(--color-primary)" />
-                Quick Demo Login
-              </h3>
-              <button
-                onClick={() => setShowTestAccounts(!showTestAccounts)}
-                className="text-sm text-primary hover:text-primary/80 transition-smooth"
-              >
-                {showTestAccounts ? 'Hide' : 'Show All'}
-              </button>
-            </div>
-            <p className="text-xs md:text-sm text-muted-foreground mb-4">
-              Click any account below to instantly log in. No backend connection required.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
-              {demoAccounts?.map((account) => (
-                <TestAccountCard
-                  key={account?.email}
-                  account={{
-                    id: account?.email,
-                    email: account?.email,
-                    password: account?.password,
-                    roleValue: account?.roleValue
-                  }}
-                  onQuickLogin={(acc) => handleDemoLogin(acc.email, acc.password)}
-                />
-              ))}
-            </div>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-6 md:gap-8 lg:gap-12 items-stretch">
@@ -440,7 +354,7 @@ const AuthenticationRoleSelection = () => {
               </button>
             </div>
             <p className="text-sm text-muted-foreground mb-6">
-              Enter your email address and we'll send you a link to reset your password.
+              Password reset is not configured. Contact your administrator for help.
             </p>
             <div className="space-y-4">
               <input
@@ -466,7 +380,7 @@ const AuthenticationRoleSelection = () => {
                   onClick={() => handleForgotPasswordSubmit(forgotPasswordEmail)}
                   className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-smooth"
                 >
-                  Send Reset Link
+                  Reset Help
                 </button>
               </div>
             </div>

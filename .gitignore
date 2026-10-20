@@ -40,3 +40,16 @@ frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
 
+# Node.js dependencies
+node_modules/
+**/node_modules/
+
+# Temporary frontend verification workspace
+.frontend-verification/
+
+# Frontend production build output
+frontend/dist/
+
+# Python virtual environment
+.venv/
+backend/.venv/

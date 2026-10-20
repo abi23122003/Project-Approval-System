@@ -16,23 +16,19 @@ A modern React-based project utilizing the latest frontend technologies and tool
 
 ## 📋 Prerequisites
 
-- Node.js (v14.x or higher)
-- npm or yarn
+- Node.js 18 LTS or 20 and newer (Vite 5 requires `^18.0.0 || >=20.0.0`)
+- npm 9 or newer (the checked-in lockfile uses lockfile version 3)
 
 ## 🛠️ Installation
 
-1. Install dependencies:
+1. Install the exact locked dependencies:
    ```bash
-   npm install
-   # or
-   yarn install
+   npm ci
    ```
    
 2. Start the development server:
    ```bash
    npm start
-   # or
-   yarn start
    ```
 
 ## 📁 Project Structure

@@ -148,8 +148,8 @@ const GuideDashboard = () => {
     const load = async () => {
       try {
         const [mentored, approved] = await Promise.all([
-          fetchMentoredProjects().catch(() => []),
-          apiFetch('/faculty/projects/approved/').then(r => r?.results ?? r ?? []).catch(() => []),
+          fetchMentoredProjects(),
+          apiFetch('/faculty/projects/approved/').then(r => r?.results ?? r ?? []),
         ]);
         setMentoredProjects(mentored || []);
         setApprovedProjects(approved || []);
@@ -158,9 +158,9 @@ const GuideDashboard = () => {
         setFilteredStudents(mapped);
       } catch (e) {
         console.error('Guide dashboard load error:', e);
-        setError('Could not load projects. Showing demo data.');
-        setAllStudents(DEMO_STUDENTS);
-        setFilteredStudents(DEMO_STUDENTS);
+        setError(`Could not load assigned projects: ${e.message || 'Please try again.'}`);
+        setAllStudents([]);
+        setFilteredStudents([]);
       } finally {
         setLoading(false);
       }
@@ -233,9 +233,12 @@ const GuideDashboard = () => {
     // Attempt to fetch pending join requests for this project
     apiFetch(`/join-requests/?project=${selectedStudentId}`)
       .then(res => {
-        setJoinRequests(res?.results ?? res ?? []);
+        setJoinRequests((res?.results ?? res ?? []).filter(request => request.status === 'PENDING'));
       })
-      .catch(() => setJoinRequests([]))
+      .catch((error) => {
+        setJoinRequests([]);
+        setJoinRequestsError(error?.message || 'Could not load join requests.');
+      })
       .finally(() => setJoinRequestsLoading(false));
   }, [selectedStudentId, isDemo]); // eslint-disable-line react-hooks/exhaustive-deps
 

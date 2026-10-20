@@ -15,6 +15,7 @@ import {
   fetchAdminUsers,
   fetchAuditEvents,
   fetchAdminProjects,
+  fetchDepartments,
   isDemoSession,
 } from '../../utils/api';
 
@@ -107,6 +108,10 @@ const AdminDashboard = () => {
   const [createForm, setCreateForm] = useState(BLANK_FORM);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [departments, setDepartments] = useState([]);
+  const [assignmentUser, setAssignmentUser] = useState(null);
+  const [assignmentDepartment, setAssignmentDepartment] = useState('');
+  const [assignmentError, setAssignmentError] = useState('');
 
   const isDemo = isDemoSession();
 
@@ -115,17 +120,19 @@ const AdminDashboard = () => {
 
     const load = async () => {
       try {
-        const [usrs, events, projs] = await Promise.all([
-          fetchAdminUsers().catch(() => []),
-          fetchAuditEvents().catch(() => []),
-          fetchAdminProjects().catch(() => []),
+        const [usrs, events, projs, depts] = await Promise.all([
+          fetchAdminUsers(),
+          fetchAuditEvents(),
+          fetchAdminProjects(),
+          fetchDepartments(),
         ]);
         setUsers(usrs || []);
         setAuditEvents(events || []);
         setProjects(projs || []);
+        setDepartments(depts || []);
       } catch (e) {
         console.error('Admin dashboard load error:', e);
-        setError('Could not load admin data. Showing partial results.');
+        setError(`Could not load admin data: ${e.message || 'Please try again.'}`);
       } finally {
         setLoading(false);
       }
@@ -189,6 +196,7 @@ const AdminDashboard = () => {
       ]
     : users.slice(0, 20).map((u, i) => ({
         id: u.id,
+        department_id: u.department_id,
         name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || u.email,
         email: u.email || u.username,
         userId: u.username,
@@ -244,7 +252,13 @@ const AdminDashboard = () => {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  const handleEditUser    = (user)   => console.log('Edit user:', user);
+  const handleEditUser = (user) => {
+    if (!user.department_id && user.id) {
+      setAssignmentUser(user);
+      setAssignmentDepartment('');
+      setAssignmentError('');
+    }
+  };
   const handleDeleteUser  = (user)   => console.log('Delete user:', user);
   const handleViewDetails = (user)   => console.log('View details:', user);
   const handleCreateBackup          = ()       => console.log('Create backup');
@@ -285,6 +299,25 @@ const AdminDashboard = () => {
       setCreateError(err?.message || 'Failed to create user. Please try again.');
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleAssignDepartment = async (e) => {
+    e.preventDefault();
+    if (!assignmentDepartment) {
+      setAssignmentError('Select an active department.');
+      return;
+    }
+    try {
+      await apiFetch(`/admin/users/${assignmentUser.id}/department/`, {
+        method: 'POST',
+        body: JSON.stringify({ department: Number(assignmentDepartment) }),
+      });
+      const fresh = await fetchAdminUsers().catch(() => []);
+      setUsers(fresh || []);
+      setAssignmentUser(null);
+    } catch (err) {
+      setAssignmentError(err?.message || 'Could not assign this department.');
     }
   };
 
@@ -508,14 +541,15 @@ const AdminDashboard = () => {
                 {/* Department */}
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">Department</label>
-                  <input
+                  <select
                     id="create-user-department"
-                    type="text"
                     value={createForm.department}
                     onChange={(e) => setCreateForm(f => ({ ...f, department: e.target.value }))}
-                    placeholder="e.g. Computer Science (optional)"
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
+                  >
+                    <option value="">{createForm.role_code === 'ADMIN' ? 'No department' : 'Select department'}</option>
+                    {departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+                  </select>
                 </div>
 
                 {/* Inline error */}
@@ -559,6 +593,23 @@ const AdminDashboard = () => {
             </div>
           </div>
         </>
+      )}
+      {assignmentUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form onSubmit={handleAssignDepartment} className="w-full max-w-md space-y-4 rounded-lg bg-card p-6">
+            <h2 className="text-lg font-semibold">Assign Department</h2>
+            <p className="text-sm text-muted-foreground">Assign an active department to {assignmentUser.email || assignmentUser.username}.</p>
+            <select value={assignmentDepartment} onChange={e => setAssignmentDepartment(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2">
+              <option value="">Select department</option>
+              {departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+            </select>
+            {assignmentError && <p className="text-sm text-error">{assignmentError}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setAssignmentUser(null)} className="rounded-md border border-border px-4 py-2">Cancel</button>
+              <button type="submit" className="rounded-md bg-primary px-4 py-2 text-primary-foreground">Assign</button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );

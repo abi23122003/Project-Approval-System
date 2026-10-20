@@ -16,7 +16,7 @@ import {
   fetchHodProjects,
   fetchHodApprovals,
   fetchHodProgress,
-  fetchFacultyList,
+  fetchHodFaculty,
   isDemoSession,
 } from '../../utils/api';
 
@@ -91,10 +91,10 @@ const HODAnalyticsDashboard = () => {
     const load = async () => {
       try {
         const [proj, approv, prog, faculty] = await Promise.all([
-          fetchHodProjects().catch(() => []),
-          fetchHodApprovals().catch(() => []),
-          fetchHodProgress().catch(() => []),
-          fetchFacultyList().catch(() => []),
+          fetchHodProjects(),
+          fetchHodApprovals(),
+          fetchHodProgress(),
+          fetchHodFaculty(),
         ]);
         const projList = proj || [];
         setProjects(projList);
@@ -115,8 +115,12 @@ const HODAnalyticsDashboard = () => {
         })) : DEMO_FACULTY_PLACEHOLDER);
       } catch (e) {
         console.error('HOD dashboard load error:', e);
-        setError('Could not load analytics data. Showing partial data.');
-        setFacultyList(DEMO_FACULTY_PLACEHOLDER);
+        setError(`Could not load department analytics: ${e.message || 'Please try again.'}`);
+        setProjects([]);
+        setPendingProjects([]);
+        setDecisions([]);
+        setProgressUpdates([]);
+        setFacultyList([]);
       } finally {
         setLoading(false);
       }

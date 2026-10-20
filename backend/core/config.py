@@ -2,7 +2,7 @@ from .models import Role
 
 # Permissions and role restrictions
 PUBLIC_ENDPOINT_PERMISSIONS = []  # No authentication needed for public endpoints
-DISALLOWED_REGISTRATION_ROLES = {Role.ADMIN, Role.HOD}
+DISALLOWED_REGISTRATION_ROLES = {Role.ADMIN, Role.HOD, Role.FACULTY}
 
 # Pagination defaults
 PAGE_SIZE_QUERY_PARAM = "page_size"

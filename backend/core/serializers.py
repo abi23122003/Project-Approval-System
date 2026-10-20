@@ -32,7 +32,15 @@ class PublicRegisterSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=6)
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
-    role_code = serializers.SlugRelatedField(slug_field="role_code", queryset=Role.objects.all())
+    role_code = serializers.SlugRelatedField(
+        slug_field="role_code",
+        queryset=Role.objects.filter(role_code=Role.STUDENT),
+    )
+
+    def to_internal_value(self, data):
+        if "department" in data:
+            raise serializers.ValidationError({"department": "Department assignment is managed by an administrator."})
+        return super().to_internal_value(data)
 
 
 class UserCreateSerializer(serializers.Serializer):
@@ -42,7 +50,17 @@ class UserCreateSerializer(serializers.Serializer):
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
     role_code = serializers.SlugRelatedField(slug_field="role_code", queryset=Role.objects.all())
-    department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all(), allow_null=True, required=False)
+    department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.filter(is_active=True), allow_null=True, required=False)
+
+    def validate(self, attrs):
+        role = attrs.get("role_code")
+        if role and role.role_code != Role.ADMIN and not attrs.get("department"):
+            raise serializers.ValidationError({"department": "A department is required for non-admin accounts."})
+        return attrs
+
+
+class DepartmentAssignmentSerializer(serializers.Serializer):
+    department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.filter(is_active=True))
 
 
 class UserListSerializer(serializers.ModelSerializer):
@@ -55,20 +73,77 @@ class UserListSerializer(serializers.ModelSerializer):
 
 
 class ProjectCreateSerializer(serializers.ModelSerializer):
-    status = serializers.SlugRelatedField(slug_field="status_code", queryset=ProjectStatus.objects.all())
-
     class Meta:
         model = Project
-        fields = ["department", "mentor_faculty", "title", "abstract", "status"]
+        fields = ["mentor_faculty", "title", "abstract"]
+
+    def to_internal_value(self, data):
+        errors = {}
+        if "department" in data:
+            errors["department"] = "Department is assigned from your account profile."
+        if "status" in data:
+            errors["status"] = "New proposals are submitted for review automatically."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return super().to_internal_value(data)
+
+    def validate_mentor_faculty(self, value):
+        request = self.context["request"]
+        student_profile = getattr(request.user, "app_profile", None)
+        faculty_profile = getattr(value, "app_profile", None)
+        if (
+            not student_profile
+            or not student_profile.department_id
+            or not faculty_profile
+            or faculty_profile.role_code_id != Role.FACULTY
+            or faculty_profile.department_id != student_profile.department_id
+            or not faculty_profile.is_active
+            or not value.is_active
+        ):
+            raise serializers.ValidationError("Select an active faculty mentor in your department.")
+        return value
+
+
+class DepartmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Department
+        fields = ["id", "code", "name"]
+
+
+class StudentMentorSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ["id", "name"]
+
+    def get_name(self, obj):
+        full_name = f"{obj.first_name} {obj.last_name}".strip()
+        return full_name or obj.username
 
 
 class ProjectUpdateSerializer(serializers.ModelSerializer):
-    status = serializers.SlugRelatedField(slug_field="status_code", queryset=ProjectStatus.objects.all(), required=False)
-
     class Meta:
         model = Project
-        fields = ["mentor_faculty", "title", "abstract", "status"]
+        fields = ["mentor_faculty", "title", "abstract"]
         extra_kwargs = {"mentor_faculty": {"required": False}}
+
+    def to_internal_value(self, data):
+        if "status" in data:
+            raise serializers.ValidationError({"status": "Project status cannot be changed through this endpoint."})
+        return super().to_internal_value(data)
+
+    def validate_mentor_faculty(self, value):
+        faculty_profile = getattr(value, "app_profile", None)
+        if (
+            not faculty_profile
+            or faculty_profile.role_code_id != Role.FACULTY
+            or faculty_profile.department_id != self.instance.department_id
+            or not faculty_profile.is_active
+            or not value.is_active
+        ):
+            raise serializers.ValidationError("Select active faculty assigned to this project's department.")
+        return value
 
 
 class ProjectDetailSerializer(serializers.ModelSerializer):
@@ -123,6 +198,10 @@ class JoinRequestCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProjectJoinRequest
         fields = ["project"]
+
+
+class JoinRequestListQuerySerializer(serializers.Serializer):
+    project = serializers.IntegerField(min_value=1, required=False)
 
 
 class JoinRequestReviewSerializer(serializers.Serializer):

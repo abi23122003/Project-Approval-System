@@ -21,8 +21,10 @@ class ActionRule:
 
 
 def _role_code(user: User) -> str | None:
+    if not getattr(user, "is_active", False):
+        return None
     profile = getattr(user, "app_profile", None)
-    if not profile:
+    if not profile or not profile.is_active:
         return None
     return getattr(profile, "role_code_id", None) or getattr(profile.role_code, "role_code", None)
 
@@ -51,13 +53,15 @@ RULES: dict[Action, ActionRule] = {
     "auth.login": ActionRule(action="auth.login", roles=frozenset()),
 
     # Users
-    "users.create": ActionRule(action="users.create", roles=frozenset({Role.ADMIN, Role.FACULTY})),
+    "users.create": ActionRule(action="users.create", roles=frozenset({Role.ADMIN})),
+    "users.department.assign": ActionRule(action="users.department.assign", roles=frozenset({Role.ADMIN})),
     "admin.users.read": ActionRule(action="admin.users.read", roles=frozenset({Role.ADMIN})),
 
     # Student projects
     "student.project.create": ActionRule(action="student.project.create", roles=frozenset({Role.STUDENT})),
     "student.project.read": ActionRule(action="student.project.read", roles=frozenset({Role.STUDENT})),
     "student.project.update": ActionRule(action="student.project.update", roles=frozenset({Role.STUDENT}), predicate=_is_project_leader),
+    "student.mentors.read": ActionRule(action="student.mentors.read", roles=frozenset({Role.STUDENT})),
 
     # HOD
     "hod.projects.read": ActionRule(action="hod.projects.read", roles=frozenset({Role.HOD})),
@@ -65,9 +69,11 @@ RULES: dict[Action, ActionRule] = {
     "hod.lifecycle.read": ActionRule(action="hod.lifecycle.read", roles=frozenset({Role.HOD})),
     "hod.approvals.read": ActionRule(action="hod.approvals.read", roles=frozenset({Role.HOD})),
     "hod.progress.read": ActionRule(action="hod.progress.read", roles=frozenset({Role.HOD})),
+    "hod.faculty.read": ActionRule(action="hod.faculty.read", roles=frozenset({Role.HOD})),
 
     # Join requests
     "join_request.create": ActionRule(action="join_request.create", roles=frozenset({Role.STUDENT})),
+    "join_request.list": ActionRule(action="join_request.list", roles=frozenset({Role.STUDENT, Role.FACULTY})),
     "join_request.review": ActionRule(
         action="join_request.review",
         roles=frozenset({Role.STUDENT, Role.FACULTY}),
@@ -84,11 +90,11 @@ RULES: dict[Action, ActionRule] = {
     # Admin dashboards
     "admin.projects.read": ActionRule(action="admin.projects.read", roles=frozenset({Role.ADMIN})),
     "admin.audit.read": ActionRule(action="admin.audit.read", roles=frozenset({Role.ADMIN})),
-    "admin.users.read": ActionRule(action="admin.users.read", roles=frozenset({Role.ADMIN, Role.HOD})),
 
     # Faculty dashboards
     "faculty.projects.approved.read": ActionRule(action="faculty.projects.approved.read", roles=frozenset({Role.FACULTY})),
     "faculty.projects.mentored.read": ActionRule(action="faculty.projects.mentored.read", roles=frozenset({Role.FACULTY})),
+    "faculty.projects.review_queue.read": ActionRule(action="faculty.projects.review_queue.read", roles=frozenset({Role.FACULTY})),
     "faculty.comments.read": ActionRule(action="faculty.comments.read", roles=frozenset({Role.FACULTY})),
     "faculty.progress.read": ActionRule(action="faculty.progress.read", roles=frozenset({Role.FACULTY})),
 

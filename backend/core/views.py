@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
@@ -9,7 +10,9 @@ from rest_framework.views import APIView
 
 from .auth import CustomTokenObtainPairView
 from .models import (
+    AppUser,
     AuditEvent,
+    Department,
     Role,
     Project,
     ProjectComment,
@@ -34,9 +37,13 @@ from .serializers import (
     HodDecisionCreateSerializer,
     HodDecisionSerializer,
     JoinRequestCreateSerializer,
+    JoinRequestListQuerySerializer,
     JoinRequestReviewSerializer,
     JoinRequestSerializer,
     PublicRegisterSerializer,
+    DepartmentSerializer,
+    DepartmentAssignmentSerializer,
+    StudentMentorSerializer,
     ProgressDocumentCreateSerializer,
     ProgressDocumentSerializer,
     ProgressUpdateCreateSerializer,
@@ -52,6 +59,7 @@ from .serializers import (
 )
 from .services import (
     add_progress_document,
+    assign_user_department,
     cancel_join_request,
     create_hod_decision,
     create_join_request,
@@ -101,6 +109,35 @@ class RegisterView(APIView):
         return Response(UserListSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
+class DepartmentListView(APIView):
+    permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
+
+    def get(self, request):
+        departments = Department.objects.filter(is_active=True).order_by("name")
+        return Response(DepartmentSerializer(departments, many=True).data)
+
+
+class StudentMentorListView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = "student.mentors.read"
+
+    def get(self, request):
+        profile = getattr(request.user, "app_profile", None)
+        department = profile.department if profile and profile.department and profile.department.is_active else None
+        if department is None:
+            return Response({"department": None, "mentors": []})
+        mentors = User.objects.filter(
+            app_profile__role_code_id=Role.FACULTY,
+            app_profile__department=department,
+            app_profile__is_active=True,
+            is_active=True,
+        ).order_by("first_name", "last_name", "username")
+        return Response({
+            "department": DepartmentSerializer(department).data,
+            "mentors": StudentMentorSerializer(mentors, many=True).data,
+        })
+
+
 class HealthView(APIView):
     permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
 
@@ -124,12 +161,39 @@ class AdminUsersView(APIView):
     required_action = "admin.users.read"
     pagination_class = StandardResultsSetPagination
 
+    def initial(self, request, *args, **kwargs):
+        self.required_action = "users.create" if request.method == "POST" else "admin.users.read"
+        super().initial(request, *args, **kwargs)
+
     def get(self, request):
         queryset = User.objects.all().order_by("id")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = UserListSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+    def post(self, request):
+        serializer = UserCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = create_user(actor=request.user, payload=serializer.validated_data)
+        return Response(UserListSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class AdminUserDepartmentAssignmentView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = "users.department.assign"
+
+    def post(self, request, user_id: int):
+        target = get_object_or_404(User, id=user_id)
+        profile = get_object_or_404(AppUser, user=target)
+        serializer = DepartmentAssignmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        profile = assign_user_department(
+            actor=request.user,
+            profile=profile,
+            department=serializer.validated_data["department"],
+        )
+        return Response(UserListSerializer(profile.user).data)
 
 
 class StudentProjectView(APIView):
@@ -139,7 +203,7 @@ class StudentProjectView(APIView):
     def post(self, request):
         self.required_action = "student.project.create"
         self.check_permissions(request)
-        serializer = ProjectCreateSerializer(data=request.data)
+        serializer = ProjectCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         project = create_project(actor=request.user, payload=serializer.validated_data)
         return Response(ProjectDetailSerializer(project).data, status=status.HTTP_201_CREATED)
@@ -170,11 +234,25 @@ class HodSubmittedProjectsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = Project.objects.filter(status__status_code__in=HOD_SUBMITTED_STATUS_CODES).order_by("-created_at")
+        department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
+        queryset = Project.objects.filter(
+            department_id=department_id,
+            status__status_code__in=HOD_SUBMITTED_STATUS_CODES,
+        ).order_by("-created_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectListSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class HodProjectDetailView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = "hod.projects.read"
+
+    def get(self, request, project_id: int):
+        department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
+        project = get_object_or_404(Project, id=project_id, department_id=department_id)
+        return Response(ProjectDetailSerializer(project).data)
 
 
 class HodDecisionView(APIView):
@@ -182,7 +260,8 @@ class HodDecisionView(APIView):
     required_action = "hod.decision.write"
 
     def post(self, request, project_id: int):
-        project = get_object_or_404(Project, id=project_id)
+        department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
+        project = get_object_or_404(Project, id=project_id, department_id=department_id)
         serializer = HodDecisionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         decision = create_hod_decision(
@@ -197,6 +276,28 @@ class HodDecisionView(APIView):
 class JoinRequestCreateView(APIView):
     permission_classes = [RBACPermission]
     required_action = "join_request.create"
+    pagination_class = StandardResultsSetPagination
+
+    def initial(self, request, *args, **kwargs):
+        self.required_action = "join_request.list" if request.method == "GET" else "join_request.create"
+        super().initial(request, *args, **kwargs)
+
+    def get(self, request):
+        query = JoinRequestListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        role_code = getattr(getattr(request.user, "app_profile", None), "role_code_id", None)
+        if role_code == Role.FACULTY:
+            queryset = ProjectJoinRequest.objects.filter(project__mentor_faculty=request.user)
+        else:
+            queryset = ProjectJoinRequest.objects.filter(
+                Q(student=request.user) | Q(project__team_leader_student=request.user)
+            )
+        project_id = query.validated_data.get("project")
+        if project_id is not None:
+            queryset = queryset.filter(project_id=project_id)
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset.order_by("-requested_at"), request)
+        return paginator.get_paginated_response(JoinRequestSerializer(page, many=True).data)
 
     def post(self, request):
         serializer = JoinRequestCreateSerializer(data=request.data)
@@ -322,7 +423,13 @@ class HodLifecycleView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request, project_id: int):
-        queryset = ProjectStatusHistory.objects.filter(project_id=project_id).order_by("-changed_at")
+        department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
+        if not Project.objects.filter(id=project_id, department_id=department_id).exists():
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        queryset = ProjectStatusHistory.objects.filter(
+            project_id=project_id,
+            project__department_id=department_id,
+        ).order_by("-changed_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectStatusHistorySerializer(page, many=True)
@@ -335,7 +442,10 @@ class HodApprovalsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = ProjectHodDecision.objects.all().order_by("-decided_at")
+        department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
+        queryset = ProjectHodDecision.objects.filter(
+            project__department_id=department_id,
+        ).order_by("-decided_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = HodDecisionSerializer(page, many=True)
@@ -348,11 +458,32 @@ class HodProgressView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = ProjectProgressUpdate.objects.all().order_by("-created_at")
+        department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
+        queryset = ProjectProgressUpdate.objects.filter(
+            project__department_id=department_id,
+        ).order_by("-created_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProgressUpdateSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class HodFacultyListView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = "hod.faculty.read"
+    pagination_class = StandardResultsSetPagination
+
+    def get(self, request):
+        department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
+        queryset = User.objects.filter(
+            app_profile__role_code_id=Role.FACULTY,
+            app_profile__department_id=department_id,
+            app_profile__is_active=True,
+            is_active=True,
+        ).order_by("id")
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        return paginator.get_paginated_response(UserListSerializer(page, many=True).data)
 
 
 class FacultyApprovedProjectsView(APIView):
@@ -361,7 +492,10 @@ class FacultyApprovedProjectsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = Project.objects.filter(status__status_code="APPROVED").order_by("-approved_at")
+        queryset = Project.objects.filter(
+            mentor_faculty=request.user,
+            status__status_code="APPROVED",
+        ).order_by("-approved_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectListSerializer(page, many=True)
@@ -381,13 +515,29 @@ class FacultyMentoredProjectsView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
 
+class FacultyReviewQueueView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = "faculty.projects.review_queue.read"
+    pagination_class = StandardResultsSetPagination
+
+    def get(self, request):
+        queryset = Project.objects.filter(
+            mentor_faculty=request.user,
+            status__status_code__in=HOD_SUBMITTED_STATUS_CODES,
+        ).order_by("-created_at")
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        return paginator.get_paginated_response(ProjectListSerializer(page, many=True).data)
+
+
 class FacultyProjectCommentsView(APIView):
     permission_classes = [RBACPermission]
     required_action = "faculty.comments.read"
     pagination_class = StandardResultsSetPagination
 
     def get(self, request, project_id: int):
-        queryset = ProjectComment.objects.filter(project_id=project_id).order_by("-created_at")
+        project = get_object_or_404(Project, id=project_id, mentor_faculty=request.user)
+        queryset = ProjectComment.objects.filter(project=project).order_by("-created_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectCommentSerializer(page, many=True)
@@ -400,7 +550,8 @@ class FacultyProjectProgressView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request, project_id: int):
-        queryset = ProjectProgressUpdate.objects.filter(project_id=project_id).order_by("-created_at")
+        project = get_object_or_404(Project, id=project_id, mentor_faculty=request.user)
+        queryset = ProjectProgressUpdate.objects.filter(project=project).order_by("-created_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProgressUpdateSerializer(page, many=True)

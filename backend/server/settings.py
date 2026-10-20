@@ -30,12 +30,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-DEBUG = env('DJANGO_DEBUG', '1') == '1'
+DEBUG = env('DJANGO_DEBUG', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 if not SECRET_KEY:
     if DEBUG:
-        SECRET_KEY = 'dev-insecure-secret-key'
+        SECRET_KEY = 'dev-only-insecure-secret-key-change-before-deployment-2026'
     else:
         raise ImproperlyConfigured('Missing required environment variable: DJANGO_SECRET_KEY')
 
@@ -66,7 +66,12 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = DEBUG and env('CORS_ALLOW_ALL_ORIGINS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in env('CORS_ALLOWED_ORIGINS', 'http://localhost:4028,http://127.0.0.1:4028').split(',')
+    if origin.strip()
+]
 ROOT_URLCONF = 'server.urls'
 
 TEMPLATES = [
@@ -93,7 +98,7 @@ WSGI_APPLICATION = 'server.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': env('DJANGO_SQLITE_PATH', str(BASE_DIR / 'db.sqlite3')),
     }
 }
 

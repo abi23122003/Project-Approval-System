@@ -258,6 +258,12 @@ EXECUTE FUNCTION core_enforce_hod_decision_role();
 """
 
 
+def install_postgres_rules(apps, schema_editor):
+    if schema_editor.connection.vendor == "postgresql":
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute(SQL)
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -265,5 +271,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(SQL),
+        # This migration installs PostgreSQL-only indexes and PL/pgSQL triggers.
+        # SQLite development databases rely on the equivalent service-layer
+        # validation and must be able to apply the rest of the schema.
+        migrations.RunPython(
+            code=install_postgres_rules,
+            reverse_code=migrations.RunPython.noop,
+        ),
     ]

@@ -1,3 +1,5 @@
+import roleMap from '../config/roleMap.json';
+
 /**
  * Centralized API utility.
  * All requests go through /api (proxied to Django on :8000 by Vite).
@@ -5,29 +7,50 @@
 
 export const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api';
 
+export const formatApiError = (data, fallback = 'Request failed. Please try again.') => {
+  if (typeof data?.detail === 'string') return data.detail;
+  if (typeof data?.message === 'string') return data.message;
+  if (!data || typeof data !== 'object') return fallback;
+  const messages = Object.entries(data).flatMap(([field, value]) => {
+    const values = Array.isArray(value) ? value : [value];
+    return values.filter(item => typeof item === 'string').map(item =>
+      field === 'non_field_errors' ? item : `${field}: ${item}`
+    );
+  });
+  return messages.length ? messages.join(' ') : fallback;
+};
+
 export const saveTokens = (access, refresh) => {
   if (access) window.localStorage.setItem('aps.access', access);
   if (refresh) window.localStorage.setItem('aps.refresh', refresh);
 };
 
 export const getTokens = () => {
-  return {
-    access: window.localStorage.getItem('aps.access') || null,
-    refresh: window.localStorage.getItem('aps.refresh') || null,
-  };
+  try {
+    return {
+      access: window.localStorage.getItem('aps.access') || null,
+      refresh: window.localStorage.getItem('aps.refresh') || null,
+    };
+  } catch {
+    return { access: null, refresh: null };
+  }
 };
 
-export const clearSession = () => {
-  const keysToRemove = [];
-  for (let i = 0; i < window.localStorage.length; i++) {
-    const key = window.localStorage.key(i);
-    if (key && key.startsWith('aps.')) {
-      keysToRemove.push(key);
+export const clearSession = (redirect = true) => {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith('aps.')) {
+        keysToRemove.push(key);
+      }
     }
+    keysToRemove.forEach(k => window.localStorage.removeItem(k));
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
   }
-  keysToRemove.forEach(k => window.localStorage.removeItem(k));
-  
-  if (!window.location.pathname.includes('authentication')) {
+
+  if (redirect && !window.location.pathname.includes('authentication')) {
     window.location.href = '/authentication-role-selection';
   }
 };
@@ -57,9 +80,15 @@ const doRefresh = async () => {
       }
 
       const data = await resp.json();
-      if (data.access) {
-        saveTokens(data.access, data.refresh);
+      const nextAccess = decodeJwtPayload(data?.access);
+      const nextRefresh = decodeJwtPayload(data?.refresh);
+      const previousIdentity = decodeJwtPayload(refresh);
+      if (!nextAccess || !nextRefresh || Number(nextAccess.exp) <= Date.now() / 1000 ||
+          Number(nextAccess.user_id) !== Number(previousIdentity?.user_id) ||
+          nextAccess.role_code !== previousIdentity?.role_code) {
+        throw new Error('Refresh response did not preserve the authenticated identity.');
       }
+      saveTokens(data.access, data.refresh);
       _refreshPromise = null;
       return data.access;
     } catch (err) {
@@ -101,12 +130,11 @@ export const apiFetch = async (path, options = {}, _retry = true) => {
   }
 
   if (!resp.ok) {
-    let detail = `API error ${resp.status}`;
+    let data = null;
     try {
-      const data = await resp.json();
-      detail = data.detail || data.message || detail;
+      data = await resp.json();
     } catch { /* ignore */ }
-    const err = new Error(detail);
+    const err = new Error(formatApiError(data, `API error ${resp.status}`));
     err.status = resp.status;
     throw err;
   }
@@ -127,7 +155,16 @@ export const getAccessToken = () => getTokens().access;
 export const getRefreshToken = () => getTokens().refresh;
 
 export const getRole = () => {
-  try { return window.localStorage.getItem('aps.role') || null; } catch { return null; }
+  try {
+    const storedRole = window.localStorage.getItem('aps.role');
+    const access = decodeJwtPayload(window.localStorage.getItem('aps.access'));
+    const refresh = decodeJwtPayload(window.localStorage.getItem('aps.refresh'));
+    const now = Date.now() / 1000;
+    const payload = access && Number(access.exp) > now ? access : refresh && Number(refresh.exp) > now ? refresh : null;
+    if (!payload) return null;
+    const tokenRole = Object.entries(roleMap).find(([role, code]) => role !== 'reviewer' && code === payload.role_code)?.[0];
+    return tokenRole && tokenRole === storedRole ? tokenRole : null;
+  } catch { return null; }
 };
 
 export const getUserEmail = () => {
@@ -202,10 +239,12 @@ export const fetchMentoredProjects = () => fetchAllPages('/faculty/projects/ment
 export const fetchProjectComments = (projectId) => fetchAllPages(`/faculty/projects/${projectId}/comments/`);
 export const fetchFacultyProjectProgress = (projectId) => fetchAllPages(`/faculty/projects/${projectId}/progress/`);
 export const fetchHodProjects = () => fetchAllPages('/hod/projects/');
+export const fetchHodFaculty = () => fetchAllPages('/hod/faculty/');
 export const fetchHodApprovals = () => fetchAllPages('/hod/approvals/');
 export const fetchHodProgress = () => fetchAllPages('/hod/progress/');
 export const fetchAdminUsers = () => fetchAllPages('/admin/users/');
+export const fetchDepartments = () => apiFetch('/departments/');
 export const fetchAdminProjects = () => fetchAllPages('/admin/projects/');
 export const fetchAuditEvents = () => fetchAllPages('/admin/audit-events/');
-export const fetchFacultyList = () => fetchAllPages('/admin/users/?role=faculty').catch(() => []);
+export const fetchFacultyList = () => fetchAllPages('/admin/users/?role=faculty');
 export const fetchStudentList = () => fetchAllPages('/admin/users/?role=student').catch(() => []);

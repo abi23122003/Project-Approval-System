@@ -13,8 +13,7 @@ import AdminDashboard from './pages/admin-dashboard';
 import HodAnalyticsDashboard from './pages/hod-analytics-dashboard';
 import NotificationCenter from './pages/notification-center';
 import SystemConfigurationPanel from './pages/system-configuration-panel';
-
-const ROLE_KEY = 'aps.role';
+import { getRole } from './utils/api';
 
 const roleHomeRoute = {
   student: '/student-dashboard',
@@ -22,14 +21,6 @@ const roleHomeRoute = {
   reviewer: '/reviewer-dashboard',
   hod: '/hod-analytics-dashboard',
   admin: '/admin-dashboard'
-};
-
-const getRole = () => {
-  try {
-    return window.localStorage.getItem(ROLE_KEY);
-  } catch {
-    return null;
-  }
 };
 
 const RoleAwareHome = () => {

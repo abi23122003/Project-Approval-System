@@ -87,7 +87,8 @@ const ReviewerDashboard = () => {
   const [filterDepartment, setFilterDepartment] = useState('all');
   const [loading, setLoading] = useState(true);
   const [evaluationQueue, setEvaluationQueue] = useState([]);
-  const [assessmentHistory, setAssessmentHistory] = useState(DEMO_HISTORY);
+  const [assessmentHistory, setAssessmentHistory] = useState([]);
+  const [loadError, setLoadError] = useState('');
 
   const isDemo = isDemoSession();
 
@@ -107,14 +108,16 @@ const ReviewerDashboard = () => {
     }
     const load = async () => {
       try {
-        // Reviewer sees approved projects from faculty endpoint
-        const approved = await fetchAllPages('/faculty/projects/approved/').catch(() => []);
-        const submitted = await fetchAllPages('/hod/projects/').catch(() => []);
+        // Reviewer access is faculty-scoped; the queue only includes projects
+        // assigned to this faculty member as mentor.
+        const approved = await fetchAllPages('/faculty/projects/approved/');
+        const submitted = await fetchAllPages('/faculty/projects/review-queue/');
         const all = [...submitted, ...approved];
         setEvaluationQueue(all.map((p, i) => mapProjectToEvaluation(p, i)));
       } catch (e) {
         console.error('Reviewer load error:', e);
-        setEvaluationQueue(DEMO_QUEUE);
+        setEvaluationQueue([]);
+        setLoadError(`Could not load assigned reviewer projects: ${e.message || 'Please try again.'}`);
       } finally {
         setLoading(false);
       }
@@ -170,6 +173,12 @@ const ReviewerDashboard = () => {
             <div className="mb-4 p-3 bg-accent/10 border border-accent/30 rounded-lg text-sm text-accent flex items-center gap-2">
               <Icon name="Info" size={16} color="var(--color-accent)" />
               Demo session — showing sample evaluation data.
+            </div>
+          )}
+
+          {loadError && (
+            <div role="alert" className="mb-4 rounded-lg border border-error/30 bg-error/10 p-3 text-sm text-error">
+              {loadError}
             </div>
           )}
 
