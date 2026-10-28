@@ -42,6 +42,7 @@ from .serializers import (
     JoinRequestSerializer,
     PublicRegisterSerializer,
     DepartmentSerializer,
+    DepartmentManagementSerializer,
     DepartmentAssignmentSerializer,
     StudentMentorSerializer,
     ProgressDocumentCreateSerializer,
@@ -62,6 +63,7 @@ from .services import (
     assign_user_department,
     cancel_join_request,
     create_hod_decision,
+    create_department,
     create_join_request,
     create_progress_update,
     create_project,
@@ -69,6 +71,7 @@ from .services import (
     create_user_public,
     review_join_request,
     update_project,
+    update_department,
 )
 
 User = get_user_model()
@@ -115,6 +118,37 @@ class DepartmentListView(APIView):
     def get(self, request):
         departments = Department.objects.filter(is_active=True).order_by("name")
         return Response(DepartmentSerializer(departments, many=True).data)
+
+
+class AdminDepartmentsView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = "admin.departments.manage"
+
+    def get(self, request):
+        departments = Department.objects.all().order_by("name", "id")
+        return Response(DepartmentManagementSerializer(departments, many=True).data)
+
+    def post(self, request):
+        serializer = DepartmentManagementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        department = create_department(actor=request.user, payload=serializer.validated_data)
+        return Response(DepartmentManagementSerializer(department).data, status=status.HTTP_201_CREATED)
+
+
+class AdminDepartmentDetailView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = "admin.departments.manage"
+
+    def patch(self, request, department_id: int):
+        department = get_object_or_404(Department, id=department_id)
+        serializer = DepartmentManagementSerializer(department, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        department = update_department(
+            actor=request.user,
+            department=department,
+            payload=serializer.validated_data,
+        )
+        return Response(DepartmentManagementSerializer(department).data)
 
 
 class StudentMentorListView(APIView):

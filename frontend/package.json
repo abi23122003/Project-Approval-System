@@ -58,7 +58,9 @@
   "scripts": {
     "start": "vite",
     "build": "vite build --sourcemap",
-    "serve": "vite preview"
+    "serve": "vite preview",
+    "test:auth": "node --test src/utils/auth-client.test.mjs",
+    "test:admin-stats": "node --test src/utils/admin-user-stats.test.mjs"
   },
   "eslintConfig": {
     "extends": [

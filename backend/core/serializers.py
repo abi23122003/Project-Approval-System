@@ -110,6 +110,13 @@ class DepartmentSerializer(serializers.ModelSerializer):
         fields = ["id", "code", "name"]
 
 
+class DepartmentManagementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Department
+        fields = ["id", "code", "name", "is_active"]
+        read_only_fields = ["id"]
+
+
 class StudentMentorSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
 

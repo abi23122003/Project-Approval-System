@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
+import { logoutSession } from '../../utils/api';
 
 const ROLE_KEY = 'aps.role';
 
@@ -60,11 +61,7 @@ const Sidebar = ({ isCollapsed = false, onToggleCollapse }) => {
   };
 
   const handleLogout = () => {
-    try {
-      window.localStorage.removeItem(ROLE_KEY);
-    } catch {
-      // ignore
-    }
+    logoutSession(false);
     navigate('/authentication-role-selection');
   };
 

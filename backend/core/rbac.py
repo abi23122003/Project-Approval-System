@@ -56,6 +56,7 @@ RULES: dict[Action, ActionRule] = {
     "users.create": ActionRule(action="users.create", roles=frozenset({Role.ADMIN})),
     "users.department.assign": ActionRule(action="users.department.assign", roles=frozenset({Role.ADMIN})),
     "admin.users.read": ActionRule(action="admin.users.read", roles=frozenset({Role.ADMIN})),
+    "admin.departments.manage": ActionRule(action="admin.departments.manage", roles=frozenset({Role.ADMIN})),
 
     # Student projects
     "student.project.create": ActionRule(action="student.project.create", roles=frozenset({Role.STUDENT})),

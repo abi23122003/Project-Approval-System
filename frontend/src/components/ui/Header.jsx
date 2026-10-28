@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import Icon from '../AppIcon';
-import { clearSession } from '../../utils/api';
+import { logoutSession } from '../../utils/api';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -176,7 +176,7 @@ const Header = () => {
           {/* Logout button */}
           <button
             id="header-logout-btn"
-            onClick={clearSession}
+            onClick={() => logoutSession()}
             title="Logout"
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-smooth"
           >

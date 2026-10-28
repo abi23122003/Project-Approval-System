@@ -1,7 +1,7 @@
 import React from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 
-const RoleDistributionChart = ({ data }) => {
+const RoleDistributionChart = ({ data, title = 'Role Distribution' }) => {
   const COLORS = {
     'Student': 'var(--color-primary)',
     'Guide': 'var(--color-accent)',
@@ -26,8 +26,8 @@ const RoleDistributionChart = ({ data }) => {
 
   return (
     <div className="bg-card border border-border rounded-lg p-4 md:p-6">
-      <h3 className="text-lg md:text-xl font-heading font-semibold text-foreground mb-6">Role Distribution</h3>
-      <div className="w-full h-64 md:h-80" aria-label="Role Distribution Pie Chart">
+      <h3 className="text-lg md:text-xl font-heading font-semibold text-foreground mb-6">{title}</h3>
+      <div className="w-full h-64 md:h-80" aria-label={title}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie

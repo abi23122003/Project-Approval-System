@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from django.urls import re_path
-from .auth import ActiveProfileTokenRefreshView
+from .auth import ActiveProfileTokenRefreshView, LogoutView
 
 from .views import (
     AdminAuditEventsView,
+    AdminDepartmentDetailView,
+    AdminDepartmentsView,
     AdminProjectsView,
     AdminUserDepartmentAssignmentView,
     AdminUsersView,
@@ -45,6 +47,7 @@ urlpatterns = [
     re_path(r"^auth/login/?$", LoginView.as_view(), name="login"),
     re_path(r"^auth/register/?$", RegisterView.as_view(), name="register"),
     re_path(r"^auth/token/refresh/?$", ActiveProfileTokenRefreshView.as_view(), name="token-refresh"),
+    re_path(r"^auth/logout/?$", LogoutView.as_view(), name="logout"),
     re_path(r"^departments/?$", DepartmentListView.as_view(), name="departments"),
     re_path(r"^student/mentors/?$", StudentMentorListView.as_view(), name="student-mentors"),
     re_path(r"^users/?$", UsersView.as_view(), name="user-create"),
@@ -66,6 +69,8 @@ urlpatterns = [
     re_path(r"^progress-updates/(?P<progress_update_id>\d+)/documents/?$", ProgressDocumentUploadView.as_view(), name="progress-document"),
 
     re_path(r"^admin/users/?$", AdminUsersView.as_view(), name="admin-users"),
+    re_path(r"^admin/departments/?$", AdminDepartmentsView.as_view(), name="admin-departments"),
+    re_path(r"^admin/departments/(?P<department_id>\d+)/?$", AdminDepartmentDetailView.as_view(), name="admin-department-detail"),
     re_path(r"^admin/users/(?P<user_id>\d+)/department/?$", AdminUserDepartmentAssignmentView.as_view(), name="admin-user-department"),
     re_path(r"^admin/projects/?$", AdminProjectsView.as_view(), name="admin-projects"),
     re_path(r"^admin/audit-events/?$", AdminAuditEventsView.as_view(), name="admin-audit"),

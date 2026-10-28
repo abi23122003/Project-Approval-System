@@ -1,155 +1,25 @@
 import roleMap from '../config/roleMap.json';
+import {
+  API_BASE,
+  apiFetch,
+  clearSession,
+  decodeJwtPayload,
+  formatApiError,
+  getTokens,
+  logoutSession,
+  saveTokens,
+} from './auth-client.mjs';
 
-/**
- * Centralized API utility.
- * All requests go through /api (proxied to Django on :8000 by Vite).
- */
-
-export const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api';
-
-export const formatApiError = (data, fallback = 'Request failed. Please try again.') => {
-  if (typeof data?.detail === 'string') return data.detail;
-  if (typeof data?.message === 'string') return data.message;
-  if (!data || typeof data !== 'object') return fallback;
-  const messages = Object.entries(data).flatMap(([field, value]) => {
-    const values = Array.isArray(value) ? value : [value];
-    return values.filter(item => typeof item === 'string').map(item =>
-      field === 'non_field_errors' ? item : `${field}: ${item}`
-    );
-  });
-  return messages.length ? messages.join(' ') : fallback;
+export {
+  API_BASE,
+  apiFetch,
+  clearSession,
+  decodeJwtPayload,
+  formatApiError,
+  getTokens,
+  logoutSession,
+  saveTokens,
 };
-
-export const saveTokens = (access, refresh) => {
-  if (access) window.localStorage.setItem('aps.access', access);
-  if (refresh) window.localStorage.setItem('aps.refresh', refresh);
-};
-
-export const getTokens = () => {
-  try {
-    return {
-      access: window.localStorage.getItem('aps.access') || null,
-      refresh: window.localStorage.getItem('aps.refresh') || null,
-    };
-  } catch {
-    return { access: null, refresh: null };
-  }
-};
-
-export const clearSession = (redirect = true) => {
-  try {
-    const keysToRemove = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (key && key.startsWith('aps.')) {
-        keysToRemove.push(key);
-      }
-    }
-    keysToRemove.forEach(k => window.localStorage.removeItem(k));
-  } catch {
-    // Storage can be unavailable in restricted browser contexts.
-  }
-
-  if (redirect && !window.location.pathname.includes('authentication')) {
-    window.location.href = '/authentication-role-selection';
-  }
-};
-
-let _refreshPromise = null;
-
-const doRefresh = async () => {
-  if (_refreshPromise) return _refreshPromise;
-
-  _refreshPromise = (async () => {
-    const { refresh } = getTokens();
-    if (!refresh) {
-      _refreshPromise = null;
-      clearSession();
-      throw new Error('No refresh token');
-    }
-
-    try {
-      const resp = await fetch(`${API_BASE}/auth/token/refresh/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh }),
-      });
-
-      if (!resp.ok) {
-        throw new Error('Refresh failed');
-      }
-
-      const data = await resp.json();
-      const nextAccess = decodeJwtPayload(data?.access);
-      const nextRefresh = decodeJwtPayload(data?.refresh);
-      const previousIdentity = decodeJwtPayload(refresh);
-      if (!nextAccess || !nextRefresh || Number(nextAccess.exp) <= Date.now() / 1000 ||
-          Number(nextAccess.user_id) !== Number(previousIdentity?.user_id) ||
-          nextAccess.role_code !== previousIdentity?.role_code) {
-        throw new Error('Refresh response did not preserve the authenticated identity.');
-      }
-      saveTokens(data.access, data.refresh);
-      _refreshPromise = null;
-      return data.access;
-    } catch (err) {
-      _refreshPromise = null;
-      clearSession();
-      throw err;
-    }
-  })();
-
-  return _refreshPromise;
-};
-
-export const apiFetch = async (path, options = {}, _retry = true) => {
-  let { access } = getTokens();
-
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-    ...(access ? { Authorization: `Bearer ${access}` } : {}),
-  };
-
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
-  let resp = await fetch(url, { ...options, headers });
-
-  if (resp.status === 401 && _retry) {
-    try {
-      const newAccess = await doRefresh();
-      const newHeaders = {
-        ...headers,
-        Authorization: `Bearer ${newAccess}`,
-      };
-      resp = await fetch(url, { ...options, headers: newHeaders });
-    } catch (refreshErr) {
-      clearSession();
-      const err = new Error('Session expired. Please log in again.');
-      err.status = 401;
-      throw err;
-    }
-  }
-
-  if (!resp.ok) {
-    let data = null;
-    try {
-      data = await resp.json();
-    } catch { /* ignore */ }
-    const err = new Error(formatApiError(data, `API error ${resp.status}`));
-    err.status = resp.status;
-    throw err;
-  }
-
-  if (resp.status === 204) {
-    return null;
-  }
-
-  const text = await resp.text();
-  return text ? JSON.parse(text) : null;
-};
-
-// ─── Token helpers (backward compatibility for existing UI) ─────────────────────
-
-const DEMO_PREFIX = 'demo.token.';
 
 export const getAccessToken = () => getTokens().access;
 export const getRefreshToken = () => getTokens().refresh;
@@ -174,34 +44,16 @@ export const getUserEmail = () => {
 export const getUserName = (fallback = 'User') => {
   const email = getUserEmail();
   if (!email) return fallback;
-  return email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, character => character.toUpperCase());
 };
 
-export const isDemoSession = () => {
-  return false;
-};
-
-export const decodeJwtPayload = (jwt) => {
-  try {
-    const part = jwt?.split('.')?.[1];
-    if (!part) return null;
-    const json = decodeURIComponent(
-      atob(part.replace(/-/g, '+').replace(/_/g, '/'))
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    return JSON.parse(json);
-  } catch { return null; }
-};
+export const isDemoSession = () => false;
 
 export const getCurrentUserId = () => {
   const token = getAccessToken();
   if (!token || isDemoSession()) return null;
   return decodeJwtPayload(token)?.user_id ?? null;
 };
-
-// ─── Paginated helper ─────────────────────────────────────────────────────────
 
 export const fetchAllPages = async (path) => {
   const first = await apiFetch(path);
@@ -215,21 +67,19 @@ export const fetchAllPages = async (path) => {
   return results;
 };
 
-// ─── Endpoint helpers ─────────────────────────────────────────────────────────
-
 export const fetchStudentProject = async () => {
   try { return await apiFetch('/student/project/'); }
-  catch (e) {
-    if (e.status === 404 || e.status === 403) return null;
-    throw e;
+  catch (error) {
+    if (error.status === 404 || error.status === 403) return null;
+    throw error;
   }
 };
 
 export const fetchStudentProgress = async () => {
   try { return await fetchAllPages('/student/project/progress/'); }
-  catch (e) {
-    if (e.status === 404 || e.status === 403) return [];
-    throw e;
+  catch (error) {
+    if (error.status === 404 || error.status === 403) return [];
+    throw error;
   }
 };
 
@@ -244,6 +94,7 @@ export const fetchHodApprovals = () => fetchAllPages('/hod/approvals/');
 export const fetchHodProgress = () => fetchAllPages('/hod/progress/');
 export const fetchAdminUsers = () => fetchAllPages('/admin/users/');
 export const fetchDepartments = () => apiFetch('/departments/');
+export const fetchAdminDepartments = () => apiFetch('/admin/departments/');
 export const fetchAdminProjects = () => fetchAllPages('/admin/projects/');
 export const fetchAuditEvents = () => fetchAllPages('/admin/audit-events/');
 export const fetchFacultyList = () => fetchAllPages('/admin/users/?role=faculty');

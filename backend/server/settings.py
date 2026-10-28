@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+import secrets
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -22,6 +24,22 @@ def env(name: str, default: str | None = None, *, required: bool = False) -> str
         raise ImproperlyConfigured(f"Missing required environment variable: {name}")
     return value if value is not None else ""
 
+
+def parse_bool(name: str, value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ImproperlyConfigured(f"{name} must be a boolean value.")
+
+
+def comma_separated(name: str, value: str, *, required: bool = False) -> list[str]:
+    entries = [entry.strip() for entry in value.split(",") if entry.strip()]
+    if required and not entries:
+        raise ImproperlyConfigured(f"{name} must contain at least one value.")
+    return entries
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -29,17 +47,34 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-DEBUG = env('DJANGO_DEBUG', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
+DJANGO_ENV = env("DJANGO_ENV", "development").strip().lower()
+if DJANGO_ENV not in {"development", "production"}:
+    raise ImproperlyConfigured("DJANGO_ENV must be either 'development' or 'production'.")
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+DEBUG = parse_bool("DJANGO_DEBUG", env("DJANGO_DEBUG", "true" if DJANGO_ENV == "development" else "false"))
+IS_PRODUCTION = DJANGO_ENV == "production" or not DEBUG
+if DJANGO_ENV == "production" and DEBUG:
+    raise ImproperlyConfigured("DJANGO_DEBUG must be false in production.")
+
+SECRET_KEY = env("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
-    if DEBUG:
-        SECRET_KEY = 'dev-only-insecure-secret-key-change-before-deployment-2026'
-    else:
-        raise ImproperlyConfigured('Missing required environment variable: DJANGO_SECRET_KEY')
+    if IS_PRODUCTION:
+        raise ImproperlyConfigured("Missing required environment variable: DJANGO_SECRET_KEY")
+    # Development-only ephemeral signing key. Set DJANGO_SECRET_KEY locally if
+    # tokens should remain valid across server restarts.
+    SECRET_KEY = secrets.token_urlsafe(50)
+elif IS_PRODUCTION and (
+    len(SECRET_KEY) < 50 or SECRET_KEY.strip() != SECRET_KEY or len(set(SECRET_KEY)) < 20
+):
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY must contain at least 50 non-padded characters in production.")
 
-ALLOWED_HOSTS = [host.strip() for host in env('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if host.strip()]
+ALLOWED_HOSTS = comma_separated(
+    "DJANGO_ALLOWED_HOSTS",
+    env("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1" if not IS_PRODUCTION else ""),
+    required=IS_PRODUCTION,
+)
+if IS_PRODUCTION and (any("*" in host for host in ALLOWED_HOSTS) or any("/" in host for host in ALLOWED_HOSTS)):
+    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must contain explicit hostnames in production.")
 
 
 # Application definition
@@ -55,6 +90,7 @@ INSTALLED_APPS = [
 INSTALLED_APPS += ['corsheaders']
 INSTALLED_APPS += ['rest_framework']
 INSTALLED_APPS += ['rest_framework_simplejwt']
+INSTALLED_APPS += ['rest_framework_simplejwt.token_blacklist']
 INSTALLED_APPS += ['core']
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -66,12 +102,60 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-CORS_ALLOW_ALL_ORIGINS = DEBUG and env('CORS_ALLOW_ALL_ORIGINS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
-CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in env('CORS_ALLOWED_ORIGINS', 'http://localhost:4028,http://127.0.0.1:4028').split(',')
-    if origin.strip()
-]
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = comma_separated(
+    "CORS_ALLOWED_ORIGINS",
+    env("CORS_ALLOWED_ORIGINS", "http://localhost:4028,http://127.0.0.1:4028" if not IS_PRODUCTION else ""),
+    required=IS_PRODUCTION,
+)
+for origin in CORS_ALLOWED_ORIGINS:
+    parsed_origin = urlsplit(origin)
+    if (
+        parsed_origin.scheme not in ({"https"} if IS_PRODUCTION else {"http", "https"})
+        or not parsed_origin.netloc
+        or "*" in parsed_origin.netloc
+        or parsed_origin.username
+        or parsed_origin.password
+        or parsed_origin.path not in {"", "/"}
+        or parsed_origin.query
+        or parsed_origin.fragment
+    ):
+        raise ImproperlyConfigured(f"Invalid trusted CORS origin: {origin!r}.")
+
+if IS_PRODUCTION:
+    SECURE_SSL_REDIRECT = parse_bool("DJANGO_SECURE_SSL_REDIRECT", env("DJANGO_SECURE_SSL_REDIRECT", "true"))
+    try:
+        SECURE_HSTS_SECONDS = int(env("DJANGO_SECURE_HSTS_SECONDS", "31536000"))
+    except ValueError as exc:
+        raise ImproperlyConfigured("DJANGO_SECURE_HSTS_SECONDS must be a non-negative integer.") from exc
+    if SECURE_HSTS_SECONDS < 0:
+        raise ImproperlyConfigured("DJANGO_SECURE_HSTS_SECONDS must be a non-negative integer.")
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = parse_bool(
+        "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", env("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", "false")
+    )
+    SECURE_HSTS_PRELOAD = parse_bool("DJANGO_SECURE_HSTS_PRELOAD", env("DJANGO_SECURE_HSTS_PRELOAD", "false"))
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+else:
+    SECURE_SSL_REDIRECT = False
+    SECURE_HSTS_SECONDS = 0
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
+
+proxy_ssl_header = env("DJANGO_SECURE_PROXY_SSL_HEADER")
+if proxy_ssl_header:
+    header_parts = proxy_ssl_header.split("=", maxsplit=1)
+    if len(header_parts) != 2 or not header_parts[0].startswith("HTTP_") or not header_parts[1]:
+        raise ImproperlyConfigured(
+            "DJANGO_SECURE_PROXY_SSL_HEADER must use HEADER_NAME=VALUE format, for example HTTP_X_FORWARDED_PROTO=https."
+        )
+    SECURE_PROXY_SSL_HEADER = (header_parts[0], header_parts[1])
 ROOT_URLCONF = 'server.urls'
 
 TEMPLATES = [
@@ -173,5 +257,5 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': __import__('datetime').timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': __import__('datetime').timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': False,
+    'BLACKLIST_AFTER_ROTATION': True,
 }

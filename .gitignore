@@ -17,6 +17,7 @@ venv/
 # Environment files (keep secrets out of git)
 .env
 .env.*
+!backend/.env.example
 
 # Editor/OS
 .DS_Store

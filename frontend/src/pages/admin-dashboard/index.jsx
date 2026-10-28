@@ -10,12 +10,13 @@ import SystemHealthMonitor from './components/SystemHealthMonitor';
 import RoleDistributionChart from './components/RoleDistributionChart';
 import BackupManagementPanel from './components/BackupManagementPanel';
 import Icon from '../../components/AppIcon';
+import { summarizeAdminUsers } from '../../utils/admin-user-stats.mjs';
 import {
   apiFetch,
   fetchAdminUsers,
   fetchAuditEvents,
   fetchAdminProjects,
-  fetchDepartments,
+  fetchAdminDepartments,
   isDemoSession,
 } from '../../utils/api';
 
@@ -109,6 +110,14 @@ const AdminDashboard = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [departments, setDepartments] = useState([]);
+  const [departmentLoading, setDepartmentLoading] = useState(true);
+  const [departmentSaving, setDepartmentSaving] = useState(false);
+  const [departmentError, setDepartmentError] = useState('');
+  const [departmentSuccess, setDepartmentSuccess] = useState('');
+  const [departmentFormOpen, setDepartmentFormOpen] = useState(false);
+  const [editingDepartment, setEditingDepartment] = useState(null);
+  const [departmentForm, setDepartmentForm] = useState({ code: '', name: '' });
+  const [departmentActionId, setDepartmentActionId] = useState(null);
   const [assignmentUser, setAssignmentUser] = useState(null);
   const [assignmentDepartment, setAssignmentDepartment] = useState('');
   const [assignmentError, setAssignmentError] = useState('');
@@ -119,42 +128,79 @@ const AdminDashboard = () => {
     if (isDemo) { setLoading(false); return; }
 
     const load = async () => {
-      try {
-        const [usrs, events, projs, depts] = await Promise.all([
-          fetchAdminUsers(),
-          fetchAuditEvents(),
-          fetchAdminProjects(),
-          fetchDepartments(),
-        ]);
-        setUsers(usrs || []);
-        setAuditEvents(events || []);
-        setProjects(projs || []);
-        setDepartments(depts || []);
-      } catch (e) {
-        console.error('Admin dashboard load error:', e);
-        setError(`Could not load admin data: ${e.message || 'Please try again.'}`);
-      } finally {
-        setLoading(false);
-      }
+      const dashboardLoad = (async () => {
+        try {
+          const [usrs, events, projs] = await Promise.all([
+            fetchAdminUsers(),
+            fetchAuditEvents(),
+            fetchAdminProjects(),
+          ]);
+          setUsers(usrs || []);
+          setAuditEvents(events || []);
+          setProjects(projs || []);
+        } catch (e) {
+          console.error('Admin dashboard load error:', e);
+          setError(`Could not load admin data: ${e.message || 'Please try again.'}`);
+        } finally {
+          setLoading(false);
+        }
+      })();
+      const departmentLoad = refreshDepartments();
+      await Promise.all([dashboardLoad, departmentLoad]);
     };
     load();
   }, [isDemo]);
 
+  const refreshDepartments = async (showLoading = false) => {
+    if (showLoading) setDepartmentLoading(true);
+    try {
+      const data = await fetchAdminDepartments();
+      setDepartments(Array.isArray(data) ? data : []);
+      setDepartmentError('');
+      return true;
+    } catch (e) {
+      setDepartmentError(e?.message || 'Could not load departments. Please try again.');
+      return false;
+    } finally {
+      setDepartmentLoading(false);
+    }
+  };
+
   // ── Derived data ─────────────────────────────────────────────────────────
 
-  const totalUsers = isDemo ? 2847 : users.length;
-  const activeUsers = isDemo ? 1234 : users.filter((u) => u.is_active).length;
+  const userStats = isDemo
+    ? { total: 2847, active: 1234, inactive: 1613, activeRoles: { STUDENT: 0, FACULTY: 0, HOD: 0, ADMIN: 0 } }
+    : summarizeAdminUsers(users);
   const totalProjects = isDemo ? 248 : projects.length;
+  const activeDepartments = departments.filter((department) => department.is_active);
 
   const statsData = [
     {
       title: 'Total Users',
-      value: isDemo ? '2,847' : totalUsers.toLocaleString(),
-      change: isDemo ? '+12.5%' : `${activeUsers} active`,
+      value: userStats.total.toLocaleString(),
+      change: isDemo ? '+12.5%' : 'all accounts',
       changeType: 'positive',
       icon: 'Users',
       iconColor: 'bg-primary/10',
       trend: 'up',
+    },
+    {
+      title: 'Active Users',
+      value: userStats.active.toLocaleString(),
+      change: 'active accounts',
+      changeType: 'neutral',
+      icon: 'UserCheck',
+      iconColor: 'bg-success/10',
+      trend: 'flat',
+    },
+    {
+      title: 'Inactive Users',
+      value: userStats.inactive.toLocaleString(),
+      change: 'inactive accounts',
+      changeType: 'neutral',
+      icon: 'UserX',
+      iconColor: 'bg-error/10',
+      trend: 'flat',
     },
     {
       title: 'Total Projects',
@@ -227,13 +273,7 @@ const AdminDashboard = () => {
       }));
 
   // Role distribution
-  const roleCounts = { STUDENT: 0, FACULTY: 0, HOD: 0, ADMIN: 0 };
-  if (!isDemo) {
-    users.forEach((u) => {
-      const r = u.role_code;
-      if (r && roleCounts[r] !== undefined) roleCounts[r]++;
-    });
-  }
+  const roleCounts = userStats.activeRoles;
 
   const roleDistributionData = isDemo
     ? [
@@ -269,6 +309,75 @@ const AdminDashboard = () => {
     setCreateForm(BLANK_FORM);
     setCreateError('');
     setShowCreateModal(true);
+  };
+
+  const openDepartmentForm = (department = null) => {
+    setEditingDepartment(department);
+    setDepartmentForm({ code: department?.code || '', name: department?.name || '' });
+    setDepartmentError('');
+    setDepartmentSuccess('');
+    setDepartmentFormOpen(true);
+  };
+
+  const handleSaveDepartment = async (e) => {
+    e.preventDefault();
+    const code = departmentForm.code.trim();
+    const name = departmentForm.name.trim();
+    if (!code || !name) {
+      setDepartmentError('Department code and name are required.');
+      return;
+    }
+    if (code.length > 20 || name.length > 120) {
+      setDepartmentError('Code must be 20 characters or fewer and name must be 120 characters or fewer.');
+      return;
+    }
+    const duplicate = departments.find((department) => department.id !== editingDepartment?.id &&
+      (department.code.toLowerCase() === code.toLowerCase() || department.name.toLowerCase() === name.toLowerCase()));
+    if (duplicate) {
+      setDepartmentError('Department code and name must be unique.');
+      return;
+    }
+
+    setDepartmentSaving(true);
+    setDepartmentError('');
+    setDepartmentSuccess('');
+    try {
+      await apiFetch(editingDepartment ? `/admin/departments/${editingDepartment.id}/` : '/admin/departments/', {
+        method: editingDepartment ? 'PATCH' : 'POST',
+        body: JSON.stringify({ code, name }),
+      });
+      setDepartmentSuccess(`Department ${editingDepartment ? 'updated' : 'created'} successfully.`);
+      setDepartmentFormOpen(false);
+      setEditingDepartment(null);
+      setDepartmentForm({ code: '', name: '' });
+      await refreshDepartments(true);
+    } catch (err) {
+      setDepartmentError(err?.message || 'Could not save department. Please try again.');
+    } finally {
+      setDepartmentSaving(false);
+    }
+  };
+
+  const handleToggleDepartment = async (department) => {
+    const nextActive = !department.is_active;
+    const action = nextActive ? 'activate' : 'deactivate';
+    const confirmed = window.confirm(`Are you sure you want to ${action} ${department.name}?`);
+    if (!confirmed) return;
+    setDepartmentActionId(department.id);
+    setDepartmentError('');
+    setDepartmentSuccess('');
+    try {
+      await apiFetch(`/admin/departments/${department.id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: nextActive }),
+      });
+      setDepartmentSuccess(`${department.name} ${nextActive ? 'activated' : 'deactivated'} successfully.`);
+      await refreshDepartments(true);
+    } catch (err) {
+      setDepartmentError(err?.message || `Could not ${action} department.`);
+    } finally {
+      setDepartmentActionId(null);
+    }
   };
 
   const handleCreateUser = async (e) => {
@@ -364,7 +473,7 @@ const AdminDashboard = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4 md:gap-6 mb-6 md:mb-8">
             {statsData?.map((stat, index) => (
               <StatCard key={index} {...stat} />
             ))}
@@ -374,10 +483,10 @@ const AdminDashboard = () => {
           {!isDemo && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
               {[
-                { label: 'Students',    count: roleCounts.STUDENT, icon: 'GraduationCap', color: 'bg-primary/10 text-primary' },
-                { label: 'Faculty',     count: roleCounts.FACULTY, icon: 'Users',         color: 'bg-accent/10 text-accent' },
-                { label: 'HODs',        count: roleCounts.HOD,     icon: 'UserCog',       color: 'bg-warning/10 text-warning' },
-                { label: 'Admins',      count: roleCounts.ADMIN,   icon: 'Shield',        color: 'bg-error/10 text-error' },
+                { label: 'Active Students', count: roleCounts.STUDENT, icon: 'GraduationCap', color: 'bg-primary/10 text-primary' },
+                { label: 'Active Faculty',  count: roleCounts.FACULTY, icon: 'Users',         color: 'bg-accent/10 text-accent' },
+                { label: 'Active HODs',     count: roleCounts.HOD,     icon: 'UserCog',       color: 'bg-warning/10 text-warning' },
+                { label: 'Active Admins',   count: roleCounts.ADMIN,   icon: 'Shield',        color: 'bg-error/10 text-error' },
               ].map(({ label, count, icon, color }) => (
                 <div key={label} className="bg-card border border-border rounded-lg p-4 flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
@@ -422,9 +531,101 @@ const AdminDashboard = () => {
             </div>
           </div>
 
+          <section className="mb-6 md:mb-8 rounded-xl border border-border bg-card shadow-elevation-sm" aria-labelledby="department-management-heading">
+            <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-6">
+              <div>
+                <h2 id="department-management-heading" className="text-lg font-heading font-semibold text-foreground">Department Management</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Create departments and manage their availability for user assignments.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => refreshDepartments(true)} disabled={departmentLoading} className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50">
+                  <Icon name="RefreshCw" size={15} /> Refresh
+                </button>
+                <button type="button" onClick={() => openDepartmentForm()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                  <Icon name="Plus" size={15} /> Add Department
+                </button>
+              </div>
+            </div>
+            <div className="space-y-4 p-4 md:p-6">
+              {departmentSuccess && <p role="status" className="rounded-lg border border-success/20 bg-success/10 p-3 text-sm text-success">{departmentSuccess}</p>}
+              {departmentError && <p role="alert" className="rounded-lg border border-error/20 bg-error/10 p-3 text-sm text-error">{departmentError}</p>}
+
+              {departmentFormOpen && (
+                <form onSubmit={handleSaveDepartment} className="grid grid-cols-1 gap-3 rounded-lg border border-border bg-background p-4 md:grid-cols-[1fr_2fr_auto_auto] md:items-end">
+                  <div>
+                    <label htmlFor="department-code" className="mb-1 block text-sm font-medium text-foreground">Code</label>
+                    <input id="department-code" value={departmentForm.code} onChange={e => setDepartmentForm(form => ({ ...form, code: e.target.value }))} required maxLength={20} className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40" placeholder="e.g. CSE" />
+                  </div>
+                  <div>
+                    <label htmlFor="department-name" className="mb-1 block text-sm font-medium text-foreground">Department name</label>
+                    <input id="department-name" value={departmentForm.name} onChange={e => setDepartmentForm(form => ({ ...form, name: e.target.value }))} required maxLength={120} className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40" placeholder="e.g. Computer Science" />
+                  </div>
+                  <button type="submit" disabled={departmentSaving} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                    {departmentSaving ? 'Saving…' : editingDepartment ? 'Save changes' : 'Create'}
+                  </button>
+                  <button type="button" disabled={departmentSaving} onClick={() => { setDepartmentFormOpen(false); setEditingDepartment(null); setDepartmentError(''); }} className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50">Cancel</button>
+                </form>
+              )}
+
+              {departmentLoading ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground" role="status">
+                  <Icon name="Loader2" size={18} className="animate-spin" /> Loading departments…
+                </div>
+              ) : departmentError && departments.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center">
+                  <p className="font-medium text-foreground">Departments could not be loaded</p>
+                  <button type="button" onClick={() => refreshDepartments(true)} className="mt-2 text-sm font-medium text-primary hover:underline">Try again</button>
+                </div>
+              ) : departments.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center">
+                  <Icon name="Building2" size={32} className="mx-auto mb-3 text-muted-foreground" />
+                  <p className="font-medium text-foreground">No departments yet</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Add a department to make it available for user assignments.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[600px] divide-y divide-border text-left">
+                    <thead className="bg-muted/40">
+                      <tr>
+                        <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Department</th>
+                        <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Code</th>
+                        <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {departments.map(department => (
+                        <tr key={department.id} className="hover:bg-muted/20">
+                          <td className="px-4 py-3 text-sm font-medium text-foreground">{department.name}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-muted-foreground">{department.code}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${department.is_active ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}`}>
+                              {department.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex justify-end gap-2">
+                              <button type="button" onClick={() => openDepartmentForm(department)} className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted">Edit</button>
+                              <button type="button" onClick={() => handleToggleDepartment(department)} disabled={departmentActionId === department.id} className={`rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${department.is_active ? 'border-warning/30 text-warning hover:bg-warning/10' : 'border-success/30 text-success hover:bg-success/10'}`}>
+                                {departmentActionId === department.id ? 'Saving…' : department.is_active ? 'Deactivate' : 'Activate'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
             <SystemActivityLog activities={activitiesData} />
-            <RoleDistributionChart data={roleDistributionData} />
+            <RoleDistributionChart
+              data={roleDistributionData}
+              title={isDemo ? 'Demo Role Distribution' : 'Active Account Role Distribution'}
+            />
           </div>
 
           <div className="mb-6 md:mb-8">
@@ -528,7 +729,7 @@ const AdminDashboard = () => {
                   <select
                     id="create-user-role"
                     value={createForm.role_code}
-                    onChange={(e) => setCreateForm(f => ({ ...f, role_code: e.target.value }))}
+                    onChange={(e) => setCreateForm(f => ({ ...f, role_code: e.target.value, department: e.target.value === 'ADMIN' ? '' : f.department }))}
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                   >
                     <option value="STUDENT">Student</option>
@@ -543,13 +744,17 @@ const AdminDashboard = () => {
                   <label className="block text-sm font-medium text-foreground mb-1">Department</label>
                   <select
                     id="create-user-department"
+                    required={createForm.role_code !== 'ADMIN'}
                     value={createForm.department}
                     onChange={(e) => setCreateForm(f => ({ ...f, department: e.target.value }))}
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                   >
                     <option value="">{createForm.role_code === 'ADMIN' ? 'No department' : 'Select department'}</option>
-                    {departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+                    {activeDepartments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
                   </select>
+                  {createForm.role_code !== 'ADMIN' && activeDepartments.length === 0 && (
+                    <p className="mt-1 text-xs text-warning">Create or activate a department before assigning one to this user.</p>
+                  )}
                 </div>
 
                 {/* Inline error */}
@@ -601,7 +806,7 @@ const AdminDashboard = () => {
             <p className="text-sm text-muted-foreground">Assign an active department to {assignmentUser.email || assignmentUser.username}.</p>
             <select value={assignmentDepartment} onChange={e => setAssignmentDepartment(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2">
               <option value="">Select department</option>
-              {departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+              {activeDepartments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
             </select>
             {assignmentError && <p className="text-sm text-error">{assignmentError}</p>}
             <div className="flex justify-end gap-2">

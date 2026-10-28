@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenObtainSerializer, TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -75,3 +80,23 @@ class ActiveProfileTokenRefreshSerializer(TokenRefreshSerializer):
 
 class ActiveProfileTokenRefreshView(TokenRefreshView):
     serializer_class = ActiveProfileTokenRefreshSerializer
+
+
+class LogoutView(APIView):
+    # A signed refresh token is the credential being invalidated. Do not let an
+    # expired access token prevent a client from ending its local session.
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get_authenticate_header(self, request):
+        return "Bearer"
+
+    def post(self, request):
+        refresh_value = request.data.get("refresh")
+        if not isinstance(refresh_value, str) or not refresh_value:
+            raise AuthenticationFailed("A refresh token is required.")
+        try:
+            RefreshToken(refresh_value).blacklist()
+        except TokenError as exc:
+            raise AuthenticationFailed("Refresh token is invalid or expired.") from exc
+        return Response(status=status.HTTP_204_NO_CONTENT)

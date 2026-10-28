@@ -11,6 +11,7 @@ from .errors import BadRequestError, ConflictError, ForbiddenError, raise_db_exc
 from .models import (
     AppUser,
     AuditEvent,
+    Department,
     ProgressDocument,
     Project,
     ProjectHodDecision,
@@ -87,6 +88,11 @@ def audited_db_write(
     transactional=True,
 )
 def create_user(*, actor: User, payload: dict[str, Any]) -> User:
+    department = payload.get("department")
+    if department is not None:
+        department = Department.objects.select_for_update().get(pk=department.pk)
+        if not department.is_active:
+            raise BadRequestError("Choose an active department.")
     user = User.objects.create_user(
         username=payload["username"],
         email=payload.get("email", ""),
@@ -97,10 +103,55 @@ def create_user(*, actor: User, payload: dict[str, Any]) -> User:
     AppUser.objects.create(
         user=user,
         role_code=payload["role_code"],
-        department=payload.get("department"),
+        department=department,
         created_by=actor,
     )
     return user
+
+
+@audited_db_write(
+    event_type="DEPARTMENT_CREATED",
+    entity_type="Department",
+    entity_id_getter=lambda department: department.id,
+    details_getter=lambda department, _kw: {
+        "code": department.code,
+        "name": department.name,
+        "is_active": department.is_active,
+    },
+    transactional=True,
+)
+def create_department(*, actor: User, payload: dict[str, Any]) -> Department:
+    return Department.objects.create(**payload)
+
+
+@audited_db_write(
+    event_type="DEPARTMENT_UPDATED",
+    entity_type="Department",
+    entity_id_getter=lambda department: department.id,
+    details_getter=lambda department, kw: {
+        "before": kw["payload"]["before"],
+        "after": {
+            "code": department.code,
+            "name": department.name,
+            "is_active": department.is_active,
+        },
+    },
+    transactional=True,
+)
+def update_department(*, actor: User, department: Department, payload: dict[str, Any]) -> Department:
+    department = Department.objects.select_for_update().get(pk=department.pk)
+    before = {
+        "code": department.code,
+        "name": department.name,
+        "is_active": department.is_active,
+    }
+    for field in ("code", "name", "is_active"):
+        if field in payload:
+            setattr(department, field, payload[field])
+    department.save(update_fields=["code", "name", "is_active"])
+    # The audit decorator receives the kwargs, so retain the prior values there.
+    payload["before"] = before
+    return department
 
 
 def create_user_public(*, payload: dict[str, Any]) -> User:

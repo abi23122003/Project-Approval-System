@@ -4,7 +4,7 @@ import Icon from '../../components/AppIcon';
 import RoleCard from './components/RoleCard';
 import SecurityIndicator from './components/SecurityIndicator';
 import LoginForm from './components/LoginForm';
-import { formatApiError, saveTokens, clearSession } from '../../utils/api';
+import { formatApiError, saveTokens, clearSession, logoutSession } from '../../utils/api';
 import roleToBackendRoleCode from '../../config/roleMap.json';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api';
@@ -128,8 +128,8 @@ const AuthenticationRoleSelection = () => {
     submissionLock.current = true;
     setIsLoading(true);
     setLoginError('');
-    clearSession(false);
     try {
+      await logoutSession(false);
       const resp = await fetch(`${API_BASE}/auth/login/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

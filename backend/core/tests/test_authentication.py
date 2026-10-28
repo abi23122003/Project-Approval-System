@@ -119,6 +119,10 @@ class AuthenticationTests(APITestCase):
         self.assertIn("refresh", refreshed.data)
         self.assertNotEqual(refreshed.data["refresh"], login.data["refresh"])
         self.assertEqual(AccessToken(refreshed.data["access"])["role_code"], Role.STUDENT)
+        reused = self.client.post(
+            "/api/auth/token/refresh/", {"refresh": login.data["refresh"]}, format="json"
+        )
+        self.assertEqual(reused.status_code, 401)
 
         student = User.objects.get(username="student")
         student.app_profile.role_code_id = Role.FACULTY
@@ -130,3 +134,41 @@ class AuthenticationTests(APITestCase):
         self.client.credentials()
         response = self.client.get("/api/admin/users/")
         self.assertEqual(response.status_code, 401)
+
+    def test_logout_blacklists_refresh_and_cleared_client_is_denied(self):
+        login = self.client.post(
+            "/api/auth/login/",
+            {
+                "username": "admin@example.edu",
+                "password": "correct-password",
+                "expected_role": Role.ADMIN,
+            },
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200, login.data)
+
+        logout = self.client.post(
+            "/api/auth/logout/", {"refresh": login.data["refresh"]}, format="json"
+        )
+        self.assertEqual(logout.status_code, 204)
+        self.assertIsNone(logout.data)
+
+        # Refresh blacklisting does not revoke an already-issued access JWT.
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+        still_valid = self.client.get("/api/admin/users/")
+        self.assertEqual(still_valid.status_code, 200)
+
+        self.client.credentials()
+        denied = self.client.get("/api/admin/users/")
+        self.assertEqual(denied.status_code, 401)
+        refresh_after_logout = self.client.post(
+            "/api/auth/token/refresh/", {"refresh": login.data["refresh"]}, format="json"
+        )
+        self.assertEqual(refresh_after_logout.status_code, 401)
+
+    def test_logout_rejects_missing_or_invalid_refresh_token(self):
+        missing = self.client.post("/api/auth/logout/", {}, format="json")
+        invalid = self.client.post("/api/auth/logout/", {"refresh": "not-a-token"}, format="json")
+
+        self.assertEqual(missing.status_code, 401)
+        self.assertEqual(invalid.status_code, 401)
