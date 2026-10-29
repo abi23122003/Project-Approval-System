@@ -51,8 +51,8 @@ DJANGO_ENV = env("DJANGO_ENV", "development").strip().lower()
 if DJANGO_ENV not in {"development", "production"}:
     raise ImproperlyConfigured("DJANGO_ENV must be either 'development' or 'production'.")
 
-DEBUG = parse_bool("DJANGO_DEBUG", env("DJANGO_DEBUG", "true" if DJANGO_ENV == "development" else "false"))
-IS_PRODUCTION = DJANGO_ENV == "production" or not DEBUG
+DEBUG = parse_bool("DJANGO_DEBUG", env("DJANGO_DEBUG", "false"))
+IS_PRODUCTION = DJANGO_ENV == "production" or ("DJANGO_DEBUG" in os.environ and not DEBUG)
 if DJANGO_ENV == "production" and DEBUG:
     raise ImproperlyConfigured("DJANGO_DEBUG must be false in production.")
 
@@ -102,7 +102,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = comma_separated(
     "CORS_ALLOWED_ORIGINS",
     env("CORS_ALLOWED_ORIGINS", "http://localhost:4028,http://127.0.0.1:4028" if not IS_PRODUCTION else ""),
@@ -121,6 +121,25 @@ for origin in CORS_ALLOWED_ORIGINS:
         or parsed_origin.fragment
     ):
         raise ImproperlyConfigured(f"Invalid trusted CORS origin: {origin!r}.")
+
+CSRF_TRUSTED_ORIGINS = comma_separated(
+    "CSRF_TRUSTED_ORIGINS",
+    env("CSRF_TRUSTED_ORIGINS", "http://localhost:4028,http://127.0.0.1:4028" if not IS_PRODUCTION else ""),
+    required=IS_PRODUCTION,
+)
+for origin in CSRF_TRUSTED_ORIGINS:
+    parsed_origin = urlsplit(origin)
+    if (
+        parsed_origin.scheme not in ({"https"} if IS_PRODUCTION else {"http", "https"})
+        or not parsed_origin.netloc
+        or "*" in parsed_origin.netloc
+        or parsed_origin.username
+        or parsed_origin.password
+        or parsed_origin.path not in {"", "/"}
+        or parsed_origin.query
+        or parsed_origin.fragment
+    ):
+        raise ImproperlyConfigured(f"Invalid trusted CSRF origin: {origin!r}.")
 
 if IS_PRODUCTION:
     SECURE_SSL_REDIRECT = parse_bool("DJANGO_SECURE_SSL_REDIRECT", env("DJANGO_SECURE_SSL_REDIRECT", "true"))
@@ -186,7 +205,7 @@ DATABASES = {
     }
 }
 
-_db_choice = env('DJANGO_DB', 'sqlite' if DEBUG else 'postgres').lower()
+_db_choice = env('DJANGO_DB', 'postgres' if IS_PRODUCTION else 'sqlite').lower()
 if _db_choice == 'postgres':
     DATABASES = {
         'default': {
@@ -241,9 +260,27 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Password reset mail is delivered by the console in development and by the
+# configured SMTP service in production. Credentials are deployment secrets.
+EMAIL_BACKEND = env(
+    "DJANGO_EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend" if IS_PRODUCTION else "django.core.mail.backends.console.EmailBackend",
+)
+EMAIL_HOST = env("DJANGO_EMAIL_HOST", "")
+EMAIL_PORT = int(env("DJANGO_EMAIL_PORT", "587"))
+EMAIL_HOST_USER = env("DJANGO_EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("DJANGO_EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = parse_bool("DJANGO_EMAIL_USE_TLS", env("DJANGO_EMAIL_USE_TLS", "true"))
+EMAIL_USE_SSL = parse_bool("DJANGO_EMAIL_USE_SSL", env("DJANGO_EMAIL_USE_SSL", "false"))
+DEFAULT_FROM_EMAIL = env("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@localhost")
+PASSWORD_RESET_FRONTEND_URL = env(
+    "PASSWORD_RESET_FRONTEND_URL",
+    "http://localhost:4028/reset-password",
+)
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'core.authentication.ActiveProfileJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',

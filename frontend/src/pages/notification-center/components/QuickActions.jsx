@@ -1,63 +1,14 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
 
-const QuickActions = ({ onMarkAllRead, onDeleteAll, unreadCount }) => {
-  return (
-    <div className="bg-card border border-border rounded-lg p-4 md:p-5 lg:p-6">
-      <h2 className="font-heading font-semibold text-lg md:text-xl text-foreground mb-4">
-        Quick Actions
-      </h2>
-      
-      <div className="space-y-3">
-        <Button
-          variant="outline"
-          fullWidth
-          iconName="CheckCheck"
-          iconPosition="left"
-          onClick={onMarkAllRead}
-          disabled={unreadCount === 0}
-        >
-          Mark All as Read ({unreadCount})
-        </Button>
-
-        <Button
-          variant="outline"
-          fullWidth
-          iconName="Archive"
-          iconPosition="left"
-        >
-          Archive Read Notifications
-        </Button>
-
-        <Button
-          variant="destructive"
-          fullWidth
-          iconName="Trash2"
-          iconPosition="left"
-          onClick={onDeleteAll}
-        >
-          Clear All Notifications
-        </Button>
-      </div>
-
-      <div className="mt-6 pt-6 border-t border-border">
-        <h3 className="font-heading font-semibold text-sm text-foreground mb-3">
-          Export Options
-        </h3>
-        <div className="space-y-2">
-          <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-academic">
-            <Icon name="Download" size={16} />
-            Export as PDF
-          </button>
-          <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-academic">
-            <Icon name="FileSpreadsheet" size={16} />
-            Export as CSV
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+const QuickActions = ({ onExport, disabled }) => (
+  <section className="min-w-0 rounded-lg border border-border bg-card p-4 md:p-5" aria-labelledby="activity-actions-heading">
+    <h2 id="activity-actions-heading" className="mb-3 text-lg font-semibold text-foreground">Activity actions</h2>
+    <p className="mb-4 text-sm leading-5 text-muted-foreground">Audit history is preserved by the system. Read, archive, and delete actions are not available for audit events.</p>
+    <button type="button" onClick={onExport} disabled={disabled} className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
+      <Icon name="Download" size={16} aria-hidden="true" />Export filtered activity as CSV
+    </button>
+  </section>
+);
 
 export default QuickActions;

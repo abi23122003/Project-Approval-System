@@ -18,6 +18,7 @@ def valid_production_environment():
         "DJANGO_SECRET_KEY": generated_test_key,
         "DJANGO_ALLOWED_HOSTS": "app.example.test",
         "CORS_ALLOWED_ORIGINS": "https://frontend.example.test",
+        "CSRF_TRUSTED_ORIGINS": "https://frontend.example.test",
         "DJANGO_DB": "sqlite",
     }
 
@@ -28,11 +29,11 @@ def load_settings(environment):
 
 
 class DjangoSecuritySettingsTests(TestCase):
-    def test_development_defaults_are_local_and_use_an_ephemeral_secret(self):
+    def test_development_defaults_are_safe_and_use_an_ephemeral_secret(self):
         first = load_settings({"DJANGO_DB": "sqlite"})
         second = load_settings({"DJANGO_DB": "sqlite"})
 
-        self.assertTrue(first["DEBUG"])
+        self.assertFalse(first["DEBUG"])
         self.assertNotEqual(first["SECRET_KEY"], second["SECRET_KEY"])
         self.assertEqual(first["ALLOWED_HOSTS"], ["localhost", "127.0.0.1"])
         self.assertEqual(
@@ -41,9 +42,14 @@ class DjangoSecuritySettingsTests(TestCase):
         )
         self.assertFalse(first["CORS_ALLOW_ALL_ORIGINS"])
 
+    def test_debug_and_allow_all_cors_are_explicit_development_opt_ins(self):
+        configured = load_settings({"DJANGO_DB": "sqlite", "DJANGO_DEBUG": "1"})
+        self.assertTrue(configured["DEBUG"])
+        self.assertTrue(configured["CORS_ALLOW_ALL_ORIGINS"])
+
     def test_production_settings_require_explicit_secret_hosts_and_origins(self):
         base = valid_production_environment()
-        for missing in ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS", "CORS_ALLOWED_ORIGINS"):
+        for missing in ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS", "CORS_ALLOWED_ORIGINS", "CSRF_TRUSTED_ORIGINS"):
             environment = {**base}
             del environment[missing]
             with self.subTest(missing=missing), self.assertRaises(ImproperlyConfigured):

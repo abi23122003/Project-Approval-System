@@ -140,7 +140,7 @@ class ProjectApprovalTests(TestCase):
         self.assertEqual(self.project.status_id, ProjectStatus.SUBMITTED)
         self.assertFalse(ProjectHodDecision.objects.filter(project=self.project).exists())
 
-    def test_student_cannot_change_status_through_project_update(self):
+    def test_student_cannot_change_status_to_approved_through_project_update(self):
         client = APIClient()
         client.force_authenticate(user=self.student)
 
@@ -150,7 +150,7 @@ class ProjectApprovalTests(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 400)
         self.project.refresh_from_db()
         self.assertEqual(self.project.status_id, ProjectStatus.SUBMITTED)
 

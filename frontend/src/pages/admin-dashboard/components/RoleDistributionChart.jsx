@@ -4,7 +4,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recha
 const RoleDistributionChart = ({ data, title = 'Role Distribution' }) => {
   const COLORS = {
     'Student': 'var(--color-primary)',
-    'Guide': 'var(--color-accent)',
+    'Faculty / Guide': 'var(--color-accent)',
     'Reviewer': 'var(--color-brand-purple)',
     'HOD': 'var(--color-warning)',
     'Admin': 'var(--color-error)'

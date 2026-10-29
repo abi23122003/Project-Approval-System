@@ -13,6 +13,7 @@ import AdminDashboard from './pages/admin-dashboard';
 import HodAnalyticsDashboard from './pages/hod-analytics-dashboard';
 import NotificationCenter from './pages/notification-center';
 import SystemConfigurationPanel from './pages/system-configuration-panel';
+import PasswordResetConfirmation from './pages/password-reset-confirmation';
 import { getRole } from './utils/api';
 
 const roleHomeRoute = {
@@ -69,6 +70,7 @@ const Routes = () => {
           </RequireRole>
         } />
         <Route path="/authentication-role-selection" element={<AuthenticationRoleSelection />} />
+        <Route path="/reset-password" element={<PasswordResetConfirmation />} />
         <Route path="/student-dashboard" element={
           <RequireRole allow={["student"]}>
             <StudentDashboard />
@@ -91,7 +93,7 @@ const Routes = () => {
         } />
         <Route path="/reviewer-dashboard" element={
           <RequireRole allow={["reviewer", "guide"]}>
-            <GuideDashboard />
+            <GuideProjectReviewInterface />
           </RequireRole>
         } />
         <Route path="/system-configuration-panel" element={

@@ -28,6 +28,10 @@ const Input = React.forwardRef(({
                 )}
                 ref={ref}
                 id={inputId}
+                aria-invalid={error ? true : props['aria-invalid']}
+                aria-describedby={error
+                    ? [props['aria-describedby'], `${inputId}-error`].filter(Boolean).join(' ')
+                    : props['aria-describedby']}
                 {...props}
             />
         );
@@ -84,7 +88,7 @@ const Input = React.forwardRef(({
             )}
 
             {error && (
-                <p className="text-sm text-destructive">
+                <p id={`${inputId}-error`} role="alert" className="text-sm text-destructive">
                     {error}
                 </p>
             )}

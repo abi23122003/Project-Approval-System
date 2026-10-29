@@ -20,6 +20,7 @@ const Select = React.forwardRef(({
     searchable = false,
     clearable = false,
     loading = false,
+    emptyMessage = "No options available",
     id,
     name,
     onChange,
@@ -126,6 +127,10 @@ const Select = React.forwardRef(({
                     disabled={disabled}
                     aria-expanded={isOpen}
                     aria-haspopup="listbox"
+                    aria-invalid={error ? true : props['aria-invalid']}
+                    aria-describedby={error
+                        ? [props['aria-describedby'], `${selectId}-error`].filter(Boolean).join(' ')
+                        : props['aria-describedby']}
                     {...props}
                 >
                     <span className="truncate">{getSelectedDisplay()}</span>
@@ -191,7 +196,7 @@ const Select = React.forwardRef(({
                         <div className="py-1 max-h-60 overflow-auto">
                             {filteredOptions?.length === 0 ? (
                                 <div className="px-3 py-2 text-sm text-muted-foreground">
-                                    {searchTerm ? 'No options found' : 'No options available'}
+                                    {searchTerm ? 'No options found' : loading ? 'Loading options…' : emptyMessage}
                                 </div>
                             ) : (
                                 filteredOptions?.map((option) => (
@@ -226,7 +231,7 @@ const Select = React.forwardRef(({
                 </p>
             )}
             {error && (
-                <p className="text-sm text-destructive mt-1">
+                <p id={`${selectId}-error`} role="alert" className="text-sm text-destructive mt-1">
                     {error}
                 </p>
             )}

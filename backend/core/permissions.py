@@ -10,7 +10,7 @@ class RBACPermission(BasePermission):
         action = getattr(view, "required_action", None)
         if not action:
             return False
-        return is_allowed(user=request.user, action=action)
+        return is_allowed(user=request.user, action=action, skip_predicate=True)
 
     def has_object_permission(self, request, view, obj) -> bool:
         action = getattr(view, "required_action", None)

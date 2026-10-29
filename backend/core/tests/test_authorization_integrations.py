@@ -103,12 +103,18 @@ class AuthorizationIntegrationTests(TestCase):
         self.assertEqual([item["project"] for item in approvals.data["results"]], [self.project_a.id])
         self.assertEqual([item["project"] for item in progress.data["results"]], [self.project_a.id])
 
-    def test_hod_faculty_list_is_department_scoped_and_admin_users_is_for_admin_only(self):
+    def test_hod_faculty_list_is_department_scoped_and_hod_users_are_department_scoped(self):
         response = self.client_as(self.hod_a).get("/api/hod/faculty/")
-        forbidden_users = self.client_as(self.hod_a).get("/api/admin/users/")
+        readable_users = self.client_as(self.hod_a).get("/api/admin/users/")
+        visible_user_ids = {item["id"] for item in readable_users.data["results"]}
+        department_user_ids = set(
+            User.objects.filter(app_profile__department=self.department_a).values_list("id", flat=True)
+        )
 
         self.assertEqual([item["id"] for item in response.data["results"]], [self.faculty_a.id])
-        self.assertEqual(forbidden_users.status_code, 403)
+        self.assertEqual(readable_users.status_code, 200, readable_users.data)
+        self.assertEqual(visible_user_ids, department_user_ids)
+        self.assertNotIn(self.hod_b.id, visible_user_ids)
 
     def test_faculty_comment_and_progress_reads_require_mentor_assignment(self):
         assigned_student = self.make_user("assigned-student", Role.STUDENT, self.department_a)
@@ -186,8 +192,49 @@ class AuthorizationIntegrationTests(TestCase):
         self.assertEqual([mentor["id"] for mentor in response.data["mentors"]], [self.faculty_a.id])
         self.assertEqual(forbidden.status_code, 403)
 
+    def test_student_mentor_lookup_returns_an_empty_result_without_a_department_and_rejects_unauthorized_users(self):
+        unassigned_student = self.make_user("unassigned-mentor-student", Role.STUDENT, None)
+        unassigned_response = self.client_as(unassigned_student).get("/api/student/mentors/")
+        submission_response = self.client_as(unassigned_student).post(
+            "/api/student/project/",
+            {"mentor_faculty": self.faculty_a.id, "title": "Unassigned department", "abstract": "Test"},
+            format="json",
+        )
+        anonymous_response = APIClient().get("/api/student/mentors/")
+        faculty_response = self.client_as(self.faculty_a).get("/api/student/mentors/")
+
+        self.assertEqual(unassigned_response.status_code, 200)
+        self.assertIsNone(unassigned_response.data["department"])
+        self.assertEqual(unassigned_response.data["mentors"], [])
+        self.assertEqual(submission_response.status_code, 400)
+        self.assertEqual(anonymous_response.status_code, 401)
+        self.assertEqual(faculty_response.status_code, 403)
+
+    def test_project_submission_rejects_inactive_faculty_user_and_inactive_student_department(self):
+        inactive_faculty_user = self.make_user("inactive-faculty-user", Role.FACULTY, self.department_a)
+        inactive_faculty_user.is_active = False
+        inactive_faculty_user.save(update_fields=["is_active"])
+        inactive_user_response = self.client_as(self.student_a).post(
+            "/api/student/project/",
+            {"mentor_faculty": inactive_faculty_user.id, "title": "Inactive guide", "abstract": "Test"},
+            format="json",
+        )
+
+        inactive_department = Department.objects.create(code="PAUSED", name="Paused Department", is_active=False)
+        student_in_inactive_department = self.make_user("student-in-paused-dept", Role.STUDENT, inactive_department)
+        faculty_in_inactive_department = self.make_user("faculty-in-paused-dept", Role.FACULTY, inactive_department)
+        inactive_department_response = self.client_as(student_in_inactive_department).post(
+            "/api/student/project/",
+            {"mentor_faculty": faculty_in_inactive_department.id, "title": "Paused department", "abstract": "Test"},
+            format="json",
+        )
+
+        self.assertEqual(inactive_user_response.status_code, 400)
+        self.assertEqual(inactive_department_response.status_code, 400)
+        self.assertFalse(Project.objects.filter(title__in=["Inactive guide", "Paused department"]).exists())
+
     def test_join_request_creation_requires_approved_project_and_valid_student(self):
-        target_student = self.make_user("joiner", Role.STUDENT, self.department_a)
+        target_student = self.make_user("joiner", Role.STUDENT, self.department_b)
         client = self.client_as(target_student)
         pending_project = client.post(
             "/api/join-requests/",

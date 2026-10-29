@@ -140,6 +140,7 @@ export const apiFetch = async (path, options = {}, retry = true) => {
   if (loggingOut) {
     const error = new Error('Session ended. Please log in again.');
     error.status = 401;
+    error.data = null;
     throw error;
   }
 
@@ -156,6 +157,7 @@ export const apiFetch = async (path, options = {}, retry = true) => {
     if (requestVersion !== sessionVersion || loggingOut) {
       const error = new Error('Session ended. Please log in again.');
       error.status = 401;
+      error.data = null;
       throw error;
     }
   };
@@ -176,6 +178,7 @@ export const apiFetch = async (path, options = {}, retry = true) => {
       if (requestVersion === sessionVersion && !loggingOut) clearSession();
       const error = new Error('Session expired. Please log in again.');
       error.status = 401;
+      error.data = null;
       throw error;
     }
   }
@@ -185,6 +188,7 @@ export const apiFetch = async (path, options = {}, retry = true) => {
     try { data = await response.json(); } catch { /* ignore non-JSON errors */ }
     const error = new Error(formatApiError(data, `API error ${response.status}`));
     error.status = response.status;
+    error.data = data;
     throw error;
   }
 

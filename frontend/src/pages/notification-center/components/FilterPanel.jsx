@@ -1,124 +1,47 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
-import Select from '../../../components/ui/Select';
-import { Checkbox } from '../../../components/ui/Checkbox';
 
-const FilterPanel = ({ filters, onFilterChange, notificationStats }) => {
-  const priorityOptions = [
-    { value: 'all', label: 'All Priorities' },
-    { value: 'critical', label: 'Critical' },
-    { value: 'high', label: 'High' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'low', label: 'Low' }
-  ];
+const ACTIVITY_TYPES = ['Departments', 'Users', 'Projects', 'Join Requests', 'Progress', 'Other Activity'];
+const TIME_RANGES = [
+  ['all', 'All time'],
+  ['today', 'Today'],
+  ['week', 'Past 7 days'],
+  ['month', 'Past 30 days'],
+];
 
-  const typeOptions = [
-    { value: 'all', label: 'All Types' },
-    { value: 'submission', label: 'Submissions' },
-    { value: 'review', label: 'Reviews' },
-    { value: 'feedback', label: 'Feedback' },
-    { value: 'deadline', label: 'Deadlines' },
-    { value: 'approval', label: 'Approvals' },
-    { value: 'system', label: 'System Updates' }
-  ];
+const FilterSelect = ({ id, label, value, options, onChange }) => (
+  <div>
+    <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-foreground">{label}</label>
+    <select id={id} value={value} onChange={event => onChange(event.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
+      {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
+    </select>
+  </div>
+);
 
-  const categoryOptions = [
-    { value: 'all', label: 'All Categories' },
-    { value: 'Project Management', label: 'Project Management' },
-    { value: 'Academic Review', label: 'Academic Review' },
-    { value: 'System Update', label: 'System Update' },
-    { value: 'Deadline Alert', label: 'Deadline Alert' },
-    { value: 'Feedback', label: 'Feedback' }
-  ];
-
-  const timeRangeOptions = [
-    { value: 'all', label: 'All Time' },
-    { value: 'today', label: 'Today' },
-    { value: 'week', label: 'This Week' },
-    { value: 'month', label: 'This Month' }
-  ];
-
-  return (
-    <div className="bg-card border border-border rounded-lg p-4 md:p-5 lg:p-6">
-      <div className="flex items-center justify-between mb-4 md:mb-6">
-        <h2 className="font-heading font-semibold text-lg md:text-xl text-foreground">
-          Filters
-        </h2>
-        <button
-          onClick={() => onFilterChange('reset')}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-academic"
-        >
-          <Icon name="RotateCcw" size={16} />
-          Reset
-        </button>
-      </div>
-      <div className="space-y-4 md:space-y-5">
-        <div className="grid grid-cols-1 gap-4">
-          <Checkbox
-            label="Show unread only"
-            checked={filters?.showUnreadOnly}
-            onChange={(e) => onFilterChange('showUnreadOnly', e?.target?.checked)}
-          />
-        </div>
-
-        <div>
-          <Select
-            label="Priority Level"
-            options={priorityOptions}
-            value={filters?.priority}
-            onChange={(value) => onFilterChange('priority', value)}
-          />
-        </div>
-
-        <div>
-          <Select
-            label="Notification Type"
-            options={typeOptions}
-            value={filters?.type}
-            onChange={(value) => onFilterChange('type', value)}
-          />
-        </div>
-
-        <div>
-          <Select
-            label="Category"
-            options={categoryOptions}
-            value={filters?.category}
-            onChange={(value) => onFilterChange('category', value)}
-          />
-        </div>
-
-        <div>
-          <Select
-            label="Time Range"
-            options={timeRangeOptions}
-            value={filters?.timeRange}
-            onChange={(value) => onFilterChange('timeRange', value)}
-          />
-        </div>
-
-        <div className="pt-4 border-t border-border">
-          <h3 className="font-heading font-semibold text-sm text-foreground mb-3">
-            Statistics
-          </h3>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Total</span>
-              <span className="font-semibold text-foreground">{notificationStats?.total}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Unread</span>
-              <span className="font-semibold text-primary">{notificationStats?.unread}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Critical</span>
-              <span className="font-semibold text-error">{notificationStats?.critical}</span>
-            </div>
-          </div>
-        </div>
-      </div>
+const FilterPanel = ({ filters, onFilterChange, categories, stats }) => (
+  <section className="min-w-0 rounded-lg border border-border bg-card p-4 md:p-5" aria-labelledby="activity-filters-heading">
+    <div className="mb-5 flex items-center justify-between gap-3">
+      <h2 id="activity-filters-heading" className="text-lg font-semibold text-foreground">Filters</h2>
+      <button type="button" onClick={() => onFilterChange('reset')} className="inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Icon name="RotateCcw" size={16} aria-hidden="true" />Reset
+      </button>
     </div>
-  );
-};
+    <div className="space-y-4">
+      <FilterSelect id="activity-type-filter" label="Activity type" value={filters.type} onChange={value => onFilterChange('type', value)} options={[
+        ['all', 'All activity types'], ...ACTIVITY_TYPES.map(type => [type, type]),
+      ]} />
+      <FilterSelect id="activity-category-filter" label="Record category" value={filters.category} onChange={value => onFilterChange('category', value)} options={[
+        ['all', 'All record categories'], ...categories.map(category => [category, category]),
+      ]} />
+      <FilterSelect id="activity-time-filter" label="Time range" value={filters.timeRange} onChange={value => onFilterChange('timeRange', value)} options={TIME_RANGES} />
+    </div>
+    <div className="mt-5 space-y-2 border-t border-border pt-4 text-sm">
+      <h3 className="font-semibold text-foreground">Activity counts</h3>
+      <div className="flex justify-between gap-3"><span className="text-muted-foreground">Total audit events</span><span className="font-semibold text-foreground">{stats.total}</span></div>
+      <div className="flex justify-between gap-3"><span className="text-muted-foreground">Matching filters</span><span className="font-semibold text-foreground">{stats.filtered}</span></div>
+      <p className="pt-2 text-xs leading-5 text-muted-foreground">Unread status and priority are not stored for audit events.</p>
+    </div>
+  </section>
+);
 
 export default FilterPanel;

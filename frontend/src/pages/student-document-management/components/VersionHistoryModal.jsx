@@ -121,7 +121,7 @@ const VersionHistoryModal = ({ document, onClose, onRollback }) => {
                       variant="outline"
                       size="sm"
                       iconName="Download"
-                      onClick={() => console.log('Download version', version?.versionNumber)}
+                      onClick={() => {}}
                     >
                       Download
                     </Button>

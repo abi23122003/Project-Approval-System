@@ -13,6 +13,98 @@ class Department(models.Model):
         return f"{self.code} - {self.name}"
 
 
+class AcademicTerm(models.Model):
+    term_name = models.CharField(max_length=120)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    is_active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-start_date", "-id"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(end_date__gte=models.F("start_date")), name="core_term_end_after_start"),
+            models.UniqueConstraint(fields=["is_active"], condition=models.Q(is_active=True), name="core_one_active_term"),
+        ]
+
+    def __str__(self) -> str:
+        return self.term_name
+
+
+class GradingScale(models.Model):
+    PERCENTAGE = "percentage"
+    POINTS = "points"
+    LETTER = "letter"
+    GRADE_TYPE_CHOICES = [
+        (PERCENTAGE, "Percentage Based"),
+        (POINTS, "Points Based"),
+        (LETTER, "Letter Grade"),
+    ]
+
+    scale_name = models.CharField(max_length=120)
+    maximum_points = models.DecimalField(max_digits=8, decimal_places=2)
+    grade_type = models.CharField(max_length=20, choices=GRADE_TYPE_CHOICES)
+    criteria = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["scale_name", "id"]
+        constraints = [models.CheckConstraint(condition=models.Q(maximum_points__gt=0), name="core_grading_scale_max_positive")]
+
+    def __str__(self) -> str:
+        return self.scale_name
+
+
+class NotificationTemplate(models.Model):
+    SUBMISSION = "submission"
+    REVIEW = "review"
+    DEADLINE = "deadline"
+    APPROVAL = "approval"
+    TRIGGER_EVENT_CHOICES = [
+        (SUBMISSION, "Project Submission"),
+        (REVIEW, "Review Completed"),
+        (DEADLINE, "Deadline Approaching"),
+        (APPROVAL, "Approval Required"),
+    ]
+
+    template_name = models.CharField(max_length=120)
+    trigger_event = models.CharField(max_length=20, choices=TRIGGER_EVENT_CHOICES)
+    email_enabled = models.BooleanField(default=False)
+    in_app_enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["template_name", "id"]
+
+    def __str__(self) -> str:
+        return self.template_name
+
+
+class WorkflowConfiguration(models.Model):
+    SINGLETON_KEY = "active"
+
+    workflow_name = models.CharField(max_length=120)
+    review_stages = models.PositiveSmallIntegerField(choices=[(number, f"{number} Stage{'s' if number != 1 else ''}") for number in range(1, 5)], default=2)
+    require_hod_approval = models.BooleanField(default=True)
+    parallel_reviews = models.BooleanField(default=False)
+    configuration_key = models.CharField(max_length=20, unique=True, default=SINGLETON_KEY, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(review_stages__gte=1) & models.Q(review_stages__lte=4), name="core_workflow_stages_1_4"),
+            models.CheckConstraint(condition=~models.Q(parallel_reviews=True) | models.Q(require_hod_approval=True), name="core_parallel_requires_hod"),
+        ]
+
+    def __str__(self) -> str:
+        return self.workflow_name
+
+
 class Role(models.Model):
     ADMIN = "ADMIN"
     HOD = "HOD"
@@ -41,6 +133,7 @@ class AppUser(models.Model):
     role_code = models.ForeignKey(Role, on_delete=models.PROTECT, db_column="role_code")
     department = models.ForeignKey(Department, null=True, blank=True, on_delete=models.SET_NULL)
     is_active = models.BooleanField(default=True)
+    auth_version = models.PositiveIntegerField(default=0)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -110,7 +203,11 @@ class Project(models.Model):
     abstract = models.TextField()
     status = models.ForeignKey(ProjectStatus, on_delete=models.PROTECT, db_column="status_code")
     submitted_at = models.DateTimeField(null=True, blank=True)
+    review_round = models.PositiveIntegerField(default=1)
     approved_at = models.DateTimeField(null=True, blank=True)
+    workflow_review_stages = models.PositiveSmallIntegerField(null=True, blank=True)
+    workflow_require_hod_approval = models.BooleanField(null=True, blank=True)
+    workflow_parallel_reviews = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -188,12 +285,35 @@ class ProjectHodDecision(models.Model):
     hod = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     decision = models.CharField(max_length=10, choices=DECISION_CHOICES)
     reason = models.TextField(null=True, blank=True)
+    review_round = models.PositiveIntegerField(default=1)
     decided_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["project", "decided_at"], name="core_projec_project_5c0a86_idx"),
         ]
+
+
+class ProjectFacultyReview(models.Model):
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
+    DECISION_CHOICES = [(APPROVE, "Approve"), (REJECT, "Reject")]
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="faculty_reviews")
+    faculty = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    stage = models.PositiveSmallIntegerField()
+    review_round = models.PositiveIntegerField(default=1)
+    decision = models.CharField(max_length=10, choices=DECISION_CHOICES)
+    reason = models.TextField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["stage", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "review_round", "stage"], name="uq_project_faculty_review_round_stage"),
+            models.CheckConstraint(condition=models.Q(stage__gte=1) & models.Q(stage__lte=4), name="core_faculty_review_stage_1_4"),
+        ]
+        indexes = [models.Index(fields=["project", "decision"], name="core_fac_rev_proj_dec_idx")]
 
 
 class ProjectJoinRequest(models.Model):

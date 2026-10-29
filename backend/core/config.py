@@ -2,11 +2,13 @@ from .models import Role
 
 # Permissions and role restrictions
 PUBLIC_ENDPOINT_PERMISSIONS = []  # No authentication needed for public endpoints
-DISALLOWED_REGISTRATION_ROLES = {Role.ADMIN, Role.HOD, Role.FACULTY}
+ALLOWED_REGISTRATION_ROLES = {Role.STUDENT}
 
 # Pagination defaults
 PAGE_SIZE_QUERY_PARAM = "page_size"
 MAX_PAGE_SIZE = 100
+MAX_PROJECT_MEMBERS = 4
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 # Health check response
 HEALTH_RESPONSE = {"status": "ok"}

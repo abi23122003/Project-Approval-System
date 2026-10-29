@@ -55,8 +55,13 @@ RULES: dict[Action, ActionRule] = {
     # Users
     "users.create": ActionRule(action="users.create", roles=frozenset({Role.ADMIN})),
     "users.department.assign": ActionRule(action="users.department.assign", roles=frozenset({Role.ADMIN})),
-    "admin.users.read": ActionRule(action="admin.users.read", roles=frozenset({Role.ADMIN})),
+    "admin.users.read": ActionRule(action="admin.users.read", roles=frozenset({Role.ADMIN, Role.HOD})),
+    "admin.users.manage": ActionRule(action="admin.users.manage", roles=frozenset({Role.ADMIN})),
     "admin.departments.manage": ActionRule(action="admin.departments.manage", roles=frozenset({Role.ADMIN})),
+    "admin.academic_terms.manage": ActionRule(action="admin.academic_terms.manage", roles=frozenset({Role.ADMIN})),
+    "admin.grading_scales.manage": ActionRule(action="admin.grading_scales.manage", roles=frozenset({Role.ADMIN})),
+    "admin.notification_templates.manage": ActionRule(action="admin.notification_templates.manage", roles=frozenset({Role.ADMIN})),
+    "admin.workflow.manage": ActionRule(action="admin.workflow.manage", roles=frozenset({Role.ADMIN})),
 
     # Student projects
     "student.project.create": ActionRule(action="student.project.create", roles=frozenset({Role.STUDENT})),
@@ -96,6 +101,7 @@ RULES: dict[Action, ActionRule] = {
     "faculty.projects.approved.read": ActionRule(action="faculty.projects.approved.read", roles=frozenset({Role.FACULTY})),
     "faculty.projects.mentored.read": ActionRule(action="faculty.projects.mentored.read", roles=frozenset({Role.FACULTY})),
     "faculty.projects.review_queue.read": ActionRule(action="faculty.projects.review_queue.read", roles=frozenset({Role.FACULTY})),
+    "faculty.project.review": ActionRule(action="faculty.project.review", roles=frozenset({Role.FACULTY})),
     "faculty.comments.read": ActionRule(action="faculty.comments.read", roles=frozenset({Role.FACULTY})),
     "faculty.progress.read": ActionRule(action="faculty.progress.read", roles=frozenset({Role.FACULTY})),
 
@@ -105,7 +111,7 @@ RULES: dict[Action, ActionRule] = {
 }
 
 
-def is_allowed(*, user: User, action: Action, obj: object | None = None) -> bool:
+def is_allowed(*, user, action, obj=None, skip_predicate: bool = False) -> bool:
     if not user or not getattr(user, "is_authenticated", False):
         return False
     rule = RULES.get(action)
@@ -116,7 +122,7 @@ def is_allowed(*, user: User, action: Action, obj: object | None = None) -> bool
     role_code = _role_code(user)
     if role_code is None or role_code not in rule.roles:
         return False
-    if rule.predicate is None:
+    if rule.predicate is None or skip_predicate:
         return True
     return rule.predicate(user, obj)
 

@@ -47,14 +47,6 @@ export const getUserName = (fallback = 'User') => {
   return email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, character => character.toUpperCase());
 };
 
-export const isDemoSession = () => false;
-
-export const getCurrentUserId = () => {
-  const token = getAccessToken();
-  if (!token || isDemoSession()) return null;
-  return decodeJwtPayload(token)?.user_id ?? null;
-};
-
 export const fetchAllPages = async (path) => {
   const first = await apiFetch(path);
   const results = [...(first?.results ?? [])];
@@ -98,4 +90,3 @@ export const fetchAdminDepartments = () => apiFetch('/admin/departments/');
 export const fetchAdminProjects = () => fetchAllPages('/admin/projects/');
 export const fetchAuditEvents = () => fetchAllPages('/admin/audit-events/');
 export const fetchFacultyList = () => fetchAllPages('/admin/users/?role=faculty');
-export const fetchStudentList = () => fetchAllPages('/admin/users/?role=student').catch(() => []);

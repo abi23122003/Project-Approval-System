@@ -2,20 +2,22 @@ import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
+import { filterAdminUsers, paginateAdminUsers } from '../../../utils/admin-user-list.mjs';
 
-const UserManagementTable = ({ users, onEditUser, onDeleteUser, onViewDetails }) => {
+const UserManagementTable = ({ users, onEditUser, onViewDetails }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(0);
+  const pageSize = 10;
 
-  const filteredUsers = users?.filter(user => {
-    const matchesSearch = user?.name?.toLowerCase()?.includes(searchTerm?.toLowerCase()) ||
-                         user?.email?.toLowerCase()?.includes(searchTerm?.toLowerCase()) ||
-                         user?.userId?.toLowerCase()?.includes(searchTerm?.toLowerCase());
-    const matchesRole = roleFilter === 'all' || user?.role === roleFilter;
-    const matchesStatus = statusFilter === 'all' || user?.status === statusFilter;
-    return matchesSearch && matchesRole && matchesStatus;
-  });
+  const filteredUsers = filterAdminUsers(users, { searchTerm, role: roleFilter, status: statusFilter });
+  const { pageCount, currentPage, visibleUsers, firstItem, lastItem } = paginateAdminUsers(filteredUsers, page, pageSize);
+
+  const updateFilter = (setter, value) => {
+    setter(value);
+    setPage(0);
+  };
 
   const getRoleBadgeColor = (role) => {
     const colors = {
@@ -50,25 +52,24 @@ const UserManagementTable = ({ users, onEditUser, onDeleteUser, onViewDetails })
                 type="text"
                 placeholder="Search users..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e?.target?.value)}
+                onChange={(e) => updateFilter(setSearchTerm, e?.target?.value)}
                 className="w-full pl-10 pr-4 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
             <select
               value={roleFilter}
-              onChange={(e) => setRoleFilter(e?.target?.value)}
+              onChange={(e) => updateFilter(setRoleFilter, e?.target?.value)}
               className="px-4 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">All Roles</option>
               <option value="Student">Student</option>
-              <option value="Guide">Guide</option>
-              <option value="Reviewer">Reviewer</option>
+              <option value="Guide">Faculty / Guide</option>
               <option value="HOD">HOD</option>
               <option value="Admin">Admin</option>
             </select>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e?.target?.value)}
+              onChange={(e) => updateFilter(setStatusFilter, e?.target?.value)}
               className="px-4 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">All Status</option>
@@ -93,7 +94,7 @@ const UserManagementTable = ({ users, onEditUser, onDeleteUser, onViewDetails })
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {filteredUsers?.map((user) => (
+            {visibleUsers.map((user) => (
               <tr key={user?.id} className="hover:bg-muted/30 transition-colors duration-academic">
                 <td className="px-4 md:px-6 py-4">
                   <div className="flex items-center space-x-3">
@@ -128,26 +129,19 @@ const UserManagementTable = ({ users, onEditUser, onDeleteUser, onViewDetails })
                 </td>
                 <td className="px-4 md:px-6 py-4">
                   <div className="flex items-center space-x-2">
-                    <button
+                    <button type="button"
                       onClick={() => onViewDetails(user)}
                       className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors duration-academic"
                       aria-label="View details"
                     >
                       <Icon name="Eye" size={16} />
                     </button>
-                    <button
+                    <button type="button"
                       onClick={() => onEditUser(user)}
                       className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors duration-academic"
-                      aria-label="Edit user"
+                      aria-label="Edit user account"
                     >
                       <Icon name="Edit" size={16} />
-                    </button>
-                    <button
-                      onClick={() => onDeleteUser(user)}
-                      className="p-1.5 text-muted-foreground hover:text-error hover:bg-error/10 rounded transition-colors duration-academic"
-                      aria-label="Delete user"
-                    >
-                      <Icon name="Trash2" size={16} />
                     </button>
                   </div>
                 </td>
@@ -163,14 +157,15 @@ const UserManagementTable = ({ users, onEditUser, onDeleteUser, onViewDetails })
         </div>
       )}
       <div className="p-4 md:p-6 border-t border-border flex flex-col sm:flex-row items-center justify-between space-y-3 sm:space-y-0">
-        <p className="text-sm text-muted-foreground">
-          Showing {filteredUsers?.length} of {users?.length} users
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          Showing {firstItem}–{lastItem} of {filteredUsers.length} matching users ({users?.length} total)
         </p>
         <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm" iconName="ChevronLeft">
+          <Button variant="outline" size="sm" iconName="ChevronLeft" disabled={currentPage === 0} onClick={() => setPage(current => Math.max(0, current - 1))}>
             Previous
           </Button>
-          <Button variant="outline" size="sm" iconName="ChevronRight" iconPosition="right">
+          <span className="text-xs text-muted-foreground" aria-live="polite">Page {pageCount ? currentPage + 1 : 0} of {pageCount}</span>
+          <Button variant="outline" size="sm" iconName="ChevronRight" iconPosition="right" disabled={currentPage >= pageCount - 1} onClick={() => setPage(current => Math.min(pageCount - 1, current + 1))}>
             Next
           </Button>
         </div>

@@ -76,6 +76,26 @@ class DepartmentManagementTests(TestCase):
         self.assertEqual(events.count(), 3)
         self.assertEqual(events.first().actor_id, self.admin.id)
         self.assertEqual(events.first().details_json["before"]["code"], "ENG")
+        transitions = list(events.order_by("event_time").values_list("details_json", flat=True))
+        self.assertEqual(
+            [(row["before"]["is_active"], row["after"]["is_active"]) for row in transitions],
+            [(True, True), (True, False), (False, True)],
+        )
+
+    def test_repeated_department_state_patch_does_not_create_duplicate_audit_event(self):
+        client = self.client_as(self.admin)
+        path = f"/api/admin/departments/{self.active.id}/"
+
+        first = client.patch(path, {"is_active": False}, format="json")
+        repeated = client.patch(path, {"is_active": False}, format="json")
+
+        self.assertEqual(first.status_code, 200, first.data)
+        self.assertEqual(repeated.status_code, 200, repeated.data)
+        events = AuditEvent.objects.filter(event_type="DEPARTMENT_UPDATED", entity_id=self.active.id)
+        self.assertEqual(events.count(), 1)
+        event = events.get()
+        self.assertTrue(event.details_json["before"]["is_active"])
+        self.assertFalse(event.details_json["after"]["is_active"])
 
     def test_duplicate_code_or_name_is_rejected_without_changes(self):
         client = self.client_as(self.admin)

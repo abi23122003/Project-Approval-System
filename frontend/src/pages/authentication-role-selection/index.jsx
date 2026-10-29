@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import RoleCard from './components/RoleCard';
-import SecurityIndicator from './components/SecurityIndicator';
 import LoginForm from './components/LoginForm';
 import { formatApiError, saveTokens, clearSession, logoutSession } from '../../utils/api';
 import roleToBackendRoleCode from '../../config/roleMap.json';
@@ -98,20 +97,14 @@ const AuthenticationRoleSelection = () => {
 
   const handleModeChange = (newMode) => {
     setAuthMode(newMode);
-    if (newMode === 'register') {
-      setSelectedRole(roles.find(role => role.value === 'student'));
+    if (newMode === 'register' && selectedRole?.value !== 'student') {
+      setSelectedRole(roles.find(role => role.value === 'student') || null);
     }
   };
 
   const visibleRoles = authMode === 'register'
     ? roles.filter(r => r.value === 'student')
     : roles;
-
-  const securityIndicators = [
-    { type: 'ldap', label: 'LDAP Connected', status: 'active' },
-    { type: 'sis', label: 'SIS Integration', status: 'active' },
-    { type: 'session', label: 'Session Timeout: 30min', status: 'active' }
-  ];
 
   const handleRoleSelect = (role) => {
     setSelectedRole(role);
@@ -291,38 +284,6 @@ const AuthenticationRoleSelection = () => {
                 mode={authMode}
                 onModeChange={handleModeChange}
               />
-            </div>
-          </div>
-
-          <div className="mt-6 md:mt-8 lg:mt-10 grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-            <div className="lg:col-span-2 space-y-3 md:space-y-4">
-              <h3 className="text-base md:text-lg font-heading font-semibold text-foreground">
-                System Status
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 md:gap-3">
-                {securityIndicators?.map((indicator, index) => (
-                  <SecurityIndicator
-                    key={index}
-                    type={indicator?.type}
-                    label={indicator?.label}
-                    status={indicator?.status}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="p-4 md:p-5 bg-primary/5 border border-primary/20 rounded-lg">
-              <div className="flex items-start gap-3">
-                <Icon name="Info" size={20} color="var(--color-primary)" className="flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="text-sm md:text-base font-medium text-foreground mb-1">
-                    Academic Year 2025-2026
-                  </h4>
-                  <p className="text-xs md:text-sm text-muted-foreground">
-                    Current semester: Spring 2026 | Session timeout: 30 minutes
-                  </p>
-                </div>
-              </div>
             </div>
           </div>
 

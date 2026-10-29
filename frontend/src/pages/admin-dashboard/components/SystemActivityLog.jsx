@@ -1,7 +1,7 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
 
-const SystemActivityLog = ({ activities }) => {
+const SystemActivityLog = ({ activities, onExport }) => {
   const getActivityIcon = (type) => {
     const icons = {
       'user_created': 'UserPlus',
@@ -55,7 +55,7 @@ const SystemActivityLog = ({ activities }) => {
       <div className="p-4 md:p-6 border-b border-border">
         <div className="flex items-center justify-between">
           <h3 className="text-lg md:text-xl font-heading font-semibold text-foreground">System Activity Log</h3>
-          <button className="flex items-center space-x-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors duration-academic">
+          <button type="button" onClick={onExport} disabled={!activities?.length} className="flex items-center space-x-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors duration-academic disabled:opacity-50">
             <Icon name="Download" size={16} />
             <span className="hidden sm:inline">Export</span>
           </button>

@@ -57,6 +57,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             raise AuthenticationFailed("This account does not have an active, supported role profile.")
         token["role_code"] = role_code
         token["user_id"] = user.id
+        token["auth_version"] = profile.auth_version
         return token
 
 
@@ -75,6 +76,8 @@ class ActiveProfileTokenRefreshSerializer(TokenRefreshSerializer):
             raise AuthenticationFailed("This account no longer has an active role profile.")
         if not profile.is_active or token.get("role_code") != profile.role_code_id:
             raise AuthenticationFailed("The account role changed. Please sign in again.")
+        if token.get("auth_version", 0) != profile.auth_version:
+            raise AuthenticationFailed("The account credentials changed. Please sign in again.")
         return super().validate(attrs)
 
 
