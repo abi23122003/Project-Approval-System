@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .views import PasswordResetRequestView, NotificationsView
-from .views import DocumentDownloadView, HodAllProjectsView
+from .views import DocumentDownloadView, HodAllProjectsView, DiscardEmptyUploadView
 
 from django.urls import re_path
 from .auth import ActiveProfileTokenRefreshView, LogoutView
@@ -85,6 +85,7 @@ urlpatterns = [
     re_path(r"^join-requests/(?P<join_request_id>\d+)/cancel/?$", JoinRequestCancelView.as_view(), name="join-request-cancel"),
 
     re_path(r"^projects/(?P<project_id>\d+)/progress/?$", ProgressUpdateView.as_view(), name="progress"),
+    re_path(r"^progress-updates/(?P<progress_update_id>\d+)/discard-empty-upload/?$", DiscardEmptyUploadView.as_view()),
     re_path(r"^progress-updates/(?P<progress_update_id>\d+)/documents/?$", ProgressDocumentUploadView.as_view(), name="progress-document"),
 
     re_path(r"^admin/users/?$", AdminUsersView.as_view(), name="admin-users"),

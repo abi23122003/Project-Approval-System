@@ -226,7 +226,8 @@ const AuthenticationRoleSelection = () => {
     }
     try {
       const response = await fetch(`${API_BASE}/auth/password-reset/request/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
-      const data = await response.json(); setForgotPasswordMessage(data.detail || 'Could not request password reset.');
+      const data = await response.json().catch(() => ({}));
+      setForgotPasswordMessage(response.ok ? (data.detail || 'Could not request password reset.') : formatApiError(data, 'Could not request password reset.'));
     } catch { setForgotPasswordMessage('Could not contact the server. Please try again.'); }
   };
 

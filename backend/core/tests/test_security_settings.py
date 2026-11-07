@@ -20,6 +20,7 @@ def valid_production_environment():
         "CORS_ALLOWED_ORIGINS": "https://frontend.example.test",
         "CSRF_TRUSTED_ORIGINS": "https://frontend.example.test",
         "DJANGO_DB": "sqlite",
+        "DJANGO_MEDIA_ROOT": "/var/lib/aps/private-media",
     }
 
 
@@ -49,7 +50,7 @@ class DjangoSecuritySettingsTests(TestCase):
 
     def test_production_settings_require_explicit_secret_hosts_and_origins(self):
         base = valid_production_environment()
-        for missing in ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS", "CORS_ALLOWED_ORIGINS", "CSRF_TRUSTED_ORIGINS"):
+        for missing in ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS", "CORS_ALLOWED_ORIGINS", "CSRF_TRUSTED_ORIGINS", "DJANGO_MEDIA_ROOT"):
             environment = {**base}
             del environment[missing]
             with self.subTest(missing=missing), self.assertRaises(ImproperlyConfigured):
@@ -92,3 +93,11 @@ class DjangoSecuritySettingsTests(TestCase):
                 **valid_production_environment(),
                 "DJANGO_SECURE_PROXY_SSL_HEADER": "bad-format",
             })
+
+    def test_private_media_requires_explicit_production_storage(self):
+        development = load_settings({'DJANGO_DB': 'sqlite'})
+        self.assertEqual(development['MEDIA_ROOT'], SETTINGS_PATH.parents[1] / 'private-media')
+        production = load_settings(valid_production_environment())
+        self.assertEqual(production['MEDIA_ROOT'], Path('/var/lib/aps/private-media'))
+        with self.assertRaisesRegex(ImproperlyConfigured, 'DJANGO_MEDIA_ROOT'):
+            load_settings({**valid_production_environment(), 'DJANGO_MEDIA_ROOT': ''})

@@ -677,7 +677,7 @@ class JoinRequestCreateView(APIView):
         if project_id is not None:
             queryset = queryset.filter(project_id=project_id)
         paginator = self.pagination_class()
-        page = paginator.paginate_queryset(queryset.order_by("-requested_at"), request)
+        page = paginator.paginate_queryset(queryset.select_related("student").order_by("-requested_at"), request)
         return paginator.get_paginated_response(JoinRequestSerializer(page, many=True).data)
 
     def post(self, request):
@@ -757,6 +757,25 @@ class ProgressUpdateView(APIView):
         serializer.is_valid(raise_exception=True)
         progress = create_progress_update(actor=request.user, project=project, payload=serializer.validated_data)
         return Response(ProgressUpdateSerializer(progress).data, status=status.HTTP_201_CREATED)
+
+
+class DiscardEmptyUploadView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = "progress.document.upload"
+
+    @transaction.atomic
+    def post(self, request, progress_update_id: int):
+        update = get_object_or_404(ProjectProgressUpdate.objects.select_for_update(), id=progress_update_id)
+        self.check_object_permissions(request, update)
+        if (
+            update.updated_by_student_id != request.user.id
+            or update.project.status_id != ProjectStatus.APPROVED
+            or not update.steps_completed.startswith("Document upload: ")
+            or update.progressdocument_set.exists()
+        ):
+            return Response({"detail": "Only empty document-upload updates can be discarded."}, status=status.HTTP_409_CONFLICT)
+        update.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ProgressDocumentUploadView(APIView):
@@ -1023,7 +1042,7 @@ class StudentJoinRequestsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = ProjectJoinRequest.objects.filter(student=request.user).order_by("-requested_at")
+        queryset = ProjectJoinRequest.objects.filter(student=request.user).select_related("student").order_by("-requested_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = JoinRequestSerializer(page, many=True)

@@ -129,7 +129,7 @@ class UserListSerializer(serializers.ModelSerializer):
 class ProposalDetailsValidation:
     def validate_proposal_details(self, value):
         import json
-        if not isinstance(value, dict) or len(json.dumps(value)) > 100000:
+        if not isinstance(value, dict) or len(json.dumps(value, ensure_ascii=False)) > 100000:
             raise serializers.ValidationError("Proposal details must be an object of at most 100,000 characters.")
         return value
 
@@ -424,9 +424,14 @@ class JoinRequestReviewSerializer(serializers.Serializer):
 
 
 class JoinRequestSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+
+    def get_student_name(self, obj):
+        return obj.student.get_full_name().strip() or obj.student.username
+
     class Meta:
         model = ProjectJoinRequest
-        fields = ["id", "project", "student", "status", "requested_at", "reviewed_by", "reviewed_at", "review_note"]
+        fields = ["id", "project", "student", "student_name", "status", "requested_at", "reviewed_by", "reviewed_at", "review_note"]
 
 
 class ProgressUpdateCreateSerializer(serializers.ModelSerializer):
@@ -460,11 +465,13 @@ class ProgressDocumentCreateSerializer(serializers.ModelSerializer):
             attrs["original_filename"] = self.validate_original_filename(uploaded.name)
             attrs["byte_size"] = uploaded.size
             attrs["mime_type"] = uploaded.content_type or "application/octet-stream"
+        elif not attrs.get("original_filename"):
+            raise serializers.ValidationError({"original_filename": "This field is required when no file is supplied."})
         return attrs
 
     storage_path = serializers.CharField(required=False, allow_blank=True, write_only=True)
-    original_filename = serializers.CharField(min_length=1, max_length=255, trim_whitespace=True)
-    byte_size = serializers.IntegerField(min_value=0, max_value=MAX_UPLOAD_BYTES)
+    original_filename = serializers.CharField(required=False, min_length=1, max_length=255, trim_whitespace=True)
+    byte_size = serializers.IntegerField(required=False, min_value=0, max_value=MAX_UPLOAD_BYTES)
     mime_type = serializers.RegexField(
         regex=r"^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$",
         max_length=100,

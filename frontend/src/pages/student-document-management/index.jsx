@@ -20,8 +20,14 @@ const StudentDocumentManagement = () => {
   }, []);
   useEffect(() => { load(); }, [load]);
   const download = async file => {
-    try { const blob = await apiFetch(`/documents/${file.id}/download/`, { responseType: "blob" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = file.fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-    catch (err) { setError(err.message); }
+    let url;
+    try {
+      const blob = await apiFetch(`/documents/${file.id}/download/`, { responseType: "blob" });
+      url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = file.fileName; link.click();
+    } catch (err) { setError(err?.message || 'Could not download the document. Please try again.'); }
+    finally { if (url) setTimeout(() => URL.revokeObjectURL(url), 1000); }
   };
   return <div className="min-h-screen bg-background"><Header /><main className="mx-auto max-w-5xl space-y-6 p-6 pt-24"><Breadcrumbs /><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-3xl font-bold">Document management</h1><p className="mt-1 text-muted-foreground">Upload and download documents for your approved project.</p></div><Button disabled={project?.status !== 'APPROVED' || project?.team_leader_student !== decodeJwtPayload(getAccessToken())?.user_id} onClick={() => setShowUpload(value => !value)}>Upload files</Button></div>
     {error && <div role="alert" className="rounded border border-error p-4">{error} <Button onClick={load}>Retry</Button></div>}

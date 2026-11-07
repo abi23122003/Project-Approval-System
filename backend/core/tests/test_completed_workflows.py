@@ -51,8 +51,10 @@ class CompletedWorkflowTests(APITestCase):
     def test_private_upload_persists_and_scopes_download(self):
         update = ProjectProgressUpdate.objects.create(project=self.project, updated_by_student=self.leader, percent_complete=25, steps_completed='Done')
         uploaded = SimpleUploadedFile('report.pdf', b'%PDF-test', content_type='application/pdf')
-        response = self.as_user(self.leader).post(f'/api/progress-updates/{update.id}/documents/', {'file': uploaded, 'original_filename': 'report.pdf', 'byte_size': 9}, format='multipart')
+        response = self.as_user(self.leader).post(f'/api/progress-updates/{update.id}/documents/', {'file': uploaded}, format='multipart')
         self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data['original_filename'], 'report.pdf')
+        self.assertEqual(response.data['byte_size'], 9)
         path = f"/api/documents/{response.data['id']}/download/"
         download = self.as_user(self.member).get(path)
         self.assertEqual(b''.join(download.streaming_content), b'%PDF-test')
@@ -152,3 +154,19 @@ class CompletedWorkflowTests(APITestCase):
         self.assertNotIn('abstract', response.data['results'][0])
         own = self.as_user(self.leader).get('/api/student/project/')
         self.assertEqual(own.data['proposal_details'], self.project.proposal_details)
+
+    def test_document_metadata_requires_filename_without_file(self):
+        update = ProjectProgressUpdate.objects.create(project=self.project, updated_by_student=self.leader, percent_complete=25, steps_completed='Done')
+        endpoint = f'/api/progress-updates/{update.id}/documents/'
+        client = self.as_user(self.leader)
+        missing = client.post(endpoint, {'byte_size': 10}, format='json')
+        self.assertEqual(missing.status_code, 400, missing.data)
+        self.assertIn('original_filename', missing.data)
+        legacy = client.post(endpoint, {'original_filename': 'legacy.pdf'}, format='json')
+        self.assertEqual(legacy.status_code, 201, legacy.data)
+
+    def test_file_only_upload_rejects_unsupported_extension(self):
+        update = ProjectProgressUpdate.objects.create(project=self.project, updated_by_student=self.leader, percent_complete=25, steps_completed='Done')
+        uploaded = SimpleUploadedFile('script.exe', b'contents')
+        response = self.as_user(self.leader).post(f'/api/progress-updates/{update.id}/documents/', {'file': uploaded}, format='multipart')
+        self.assertEqual(response.status_code, 400, response.data)

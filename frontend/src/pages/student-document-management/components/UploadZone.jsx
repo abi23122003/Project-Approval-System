@@ -25,15 +25,25 @@ const UploadZone = ({ onUpload, category, project, latestPercent = 0, onError })
     setBusy(true);
     try {
       const update = await apiFetch(`/projects/${project.id}/progress/`, { method: 'POST', body: JSON.stringify({ percent_complete: Number(latestPercent) || 0, steps_completed: `Document upload: ${accepted.length} file(s)` }) });
+      let uploadedCount = 0;
       for (const file of accepted) {
         try {
           const body = new FormData();
           body.append('file', file); body.append('original_filename', file.name); body.append('byte_size', file.size);
           const saved = await apiFetch(`/progress-updates/${update.id}/documents/`, { method: 'POST', body });
+          uploadedCount += 1;
           const item = { ...saved, fileName: file.name, fileSize: file.size, category };
           setRecorded(previous => [...previous, item]);
           onUpload?.(item);
         } catch (error) { rejected.push(`${file.name}: ${error.message}`); }
+      }
+      if (!uploadedCount) {
+        try {
+          await apiFetch(`/progress-updates/${update.id}/discard-empty-upload/`, { method: 'POST', body: JSON.stringify({}) });
+        } catch (error) {
+          rejected.push('Could not remove the empty upload update. Please try again.');
+          onError?.(error);
+        }
       }
       setMessages(rejected);
     } catch (error) { setMessages([error.message || 'Could not record file details.']); onError?.(error); }
