@@ -1,3 +1,4 @@
+import PersonalNotifications from './components/PersonalNotifications';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import Icon from '../../components/AppIcon';
@@ -89,7 +90,7 @@ const NotificationCenter = () => {
               <header className="mb-6 md:mb-8">
                 <h1 className="mb-2 break-words font-heading text-2xl font-bold text-foreground md:text-3xl lg:text-4xl">Notification Center</h1>
                 <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:text-base">
-                  This page currently shows immutable administrative audit events, not personal notifications. Read status and priority are not part of the audit event data.
+                  Project notifications and administrative activity.
                 </p>
                 {isAdmin && (
                   <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
@@ -102,8 +103,7 @@ const NotificationCenter = () => {
 
               {!isAdmin ? (
                 <section className="rounded-lg border border-border bg-card p-6" role="status">
-                  <h2 className="font-semibold text-foreground">Administrative audit activity</h2>
-                  <p className="mt-2 text-sm text-muted-foreground">Audit activity is available to administrators only. Personal notifications are not implemented in this system.</p>
+                  <PersonalNotifications />
                 </section>
               ) : (
                 <>

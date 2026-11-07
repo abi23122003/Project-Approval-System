@@ -48,7 +48,7 @@ const StudentProjectProposalForm = () => {
       setProject(existingProject || null);
       setDepartment(mentorResponse?.department || null);
       setMentors((mentorResponse?.mentors || []).map(item => ({ value: String(item.id), label: item.name })));
-      if (existingProject) setFormData({ ...blankForm, projectTitle: existingProject.title || '', abstract: existingProject.abstract || '', guide: existingProject.mentor_faculty == null ? '' : String(existingProject.mentor_faculty) });
+      if (existingProject) setFormData({ ...blankForm, ...(existingProject.proposal_details || {}), projectTitle: existingProject.title || '', abstract: existingProject.abstract || '', guide: existingProject.mentor_faculty == null ? '' : String(existingProject.mentor_faculty) });
     } catch (error) { setLoadError(error.message || 'Could not load your project details.'); }
     finally { setLoading(false); }
   }, []);
@@ -71,7 +71,7 @@ const StudentProjectProposalForm = () => {
     if (!department) { setBannerError('An administrator must assign your department before you can submit a project.'); return; }
     if (!validate()) { setCurrentStep(0); return; }
     setRequesting(true);
-    const payload = { title: formData.projectTitle.trim(), abstract: formData.abstract.trim(), mentor_faculty: Number(formData.guide) };
+    const payload = { title: formData.projectTitle.trim(), abstract: formData.abstract.trim(), mentor_faculty: Number(formData.guide), proposal_details: Object.fromEntries(Object.entries(formData).filter(([key]) => !["projectTitle", "abstract", "guide"].includes(key))) };
     if (status) payload.status = status;
     try {
       const saved = await apiFetch(project ? `/student/project/${project.id}/` : '/student/project/', {
@@ -111,7 +111,7 @@ const StudentProjectProposalForm = () => {
         {locked ? <section className="my-6 rounded-lg border p-6"><h1 className="text-xl font-semibold">This project can no longer be edited</h1><p className="mt-2">Status: {project.status}</p><h2 className="mt-4 font-medium">{project.title}</h2><p className="mt-2 whitespace-pre-wrap">{project.abstract}</p></section> : <>
           {bannerError && <div role="alert" className="mb-4 p-3 border border-error rounded-lg text-error">{bannerError}</div>}
           {success && <div role="status" className="mb-4 p-3 border border-success rounded-lg">{success}</div>}
-          {['objectives', 'methodology', 'timeline', 'resources'].includes(steps[currentStep].id) && <p className="mb-4 rounded-lg bg-primary/5 border border-primary/20 p-3 text-sm">These sections are for your own planning; only the title, abstract and guide are saved with your submission.</p>}
+          {['objectives', 'methodology', 'timeline', 'resources'].includes(steps[currentStep].id) && <p className="mb-4 rounded-lg bg-primary/5 border border-primary/20 p-3 text-sm">These details are saved with your project proposal.</p>}
           <div className="grid lg:grid-cols-[16rem_1fr] gap-6"><SectionNavigation steps={steps} currentStep={currentStep} onStepClick={setCurrentStep} validationStatus={validationStatus} /><section className="min-w-0 rounded-lg border bg-card p-5">{renderStep()}
             <div className="mt-6 flex flex-wrap justify-between gap-3"><Button variant="outline" disabled={currentStep === 0 || requesting} onClick={() => setCurrentStep(currentStep - 1)}>Previous</Button><div className="flex gap-3"><Button variant="outline" disabled={requesting || !department} onClick={() => save(project ? undefined : 'DRAFT')}>{requesting ? 'Saving…' : 'Save draft'}</Button>{currentStep < steps.length - 1 ? <Button disabled={requesting} onClick={() => setCurrentStep(currentStep + 1)}>Next</Button> : <Button disabled={requesting || !department} onClick={() => { if (validate()) setShowSubmitModal(true); }}>Submit</Button>}</div></div>
           </section></div>

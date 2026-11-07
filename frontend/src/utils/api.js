@@ -30,7 +30,7 @@ export const getRole = () => {
     const access = decodeJwtPayload(window.localStorage.getItem('aps.access'));
     const refresh = decodeJwtPayload(window.localStorage.getItem('aps.refresh'));
     const now = Date.now() / 1000;
-    const payload = access && Number(access.exp) > now ? access : refresh && Number(refresh.exp) > now ? refresh : null;
+    const payload = access && (Number(access.exp) > now || getTokens().refresh === 'cookie') ? access : refresh && Number(refresh.exp) > now ? refresh : null;
     if (!payload) return null;
     const tokenRole = Object.entries(roleMap).find(([role, code]) => role !== 'reviewer' && code === payload.role_code)?.[0];
     return tokenRole && tokenRole === storedRole ? tokenRole : null;

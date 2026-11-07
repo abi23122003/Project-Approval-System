@@ -10,6 +10,8 @@ User = get_user_model()
 
 class AuthenticationTests(APITestCase):
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
         self.client = APIClient()
         for code, label in Role.ROLE_CHOICES:
             Role.objects.get_or_create(role_code=code, defaults={"role_code": code})
@@ -52,6 +54,9 @@ class AuthenticationTests(APITestCase):
                 if expected_role == actual_role:
                     continue
                 with self.subTest(actual=actual_role, expected=expected_role):
+                    # Each role pair is independent of the rate-limit regression.
+                    from django.core.cache import cache
+                    cache.clear()
                     response = self.client.post(
                         "/api/auth/login/",
                         {

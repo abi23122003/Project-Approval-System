@@ -1,5 +1,6 @@
 export const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api';
 const SESSION_PREFIX = 'aps.';
+const csrfHeaders = () => ({ 'X-CSRFToken': (typeof document === 'undefined' ? '' : document.cookie.match(/(?:^|; )csrftoken=([^;]+)/)?.[1]) || '' });
 
 let sessionVersion = 0;
 let refreshPromise = null;
@@ -72,7 +73,7 @@ export const logoutSession = async (redirect = true) => {
     try {
       await fetch(`${API_BASE}/auth/logout/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
         body: JSON.stringify({ refresh }),
       });
     } catch {
@@ -106,7 +107,7 @@ const doRefresh = async (startedAtVersion) => {
 
     const response = await fetch(`${API_BASE}/auth/token/refresh/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
       body: JSON.stringify({ refresh }),
     });
     if (!response.ok) throw new Error('Refresh failed');
@@ -114,8 +115,8 @@ const doRefresh = async (startedAtVersion) => {
     const data = await response.json();
     const nextAccess = decodeJwtPayload(data?.access);
     const nextRefresh = decodeJwtPayload(data?.refresh);
-    const previousIdentity = decodeJwtPayload(refresh);
-    if (!nextAccess || !nextRefresh || Number(nextAccess.exp) <= Date.now() / 1000 ||
+    const previousIdentity = decodeJwtPayload(refresh === "cookie" ? getTokens().access : refresh);
+    if (!nextAccess || (!nextRefresh && data.refresh !== "cookie") || Number(nextAccess.exp) <= Date.now() / 1000 ||
         Number(nextAccess.user_id) !== Number(previousIdentity?.user_id) ||
         nextAccess.role_code !== previousIdentity?.role_code) {
       throw new Error('Refresh response did not preserve the authenticated identity.');
@@ -147,7 +148,7 @@ export const apiFetch = async (path, options = {}, retry = true) => {
   const requestVersion = sessionVersion;
   const { access } = getTokens();
   const headers = {
-    'Content-Type': 'application/json',
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers || {}),
     ...(access ? { Authorization: `Bearer ${access}` } : {}),
   };
@@ -192,6 +193,7 @@ export const apiFetch = async (path, options = {}, retry = true) => {
     throw error;
   }
 
+  if (options.responseType === "blob") return response.blob();
   if (response.status === 204) return null;
   const text = await response.text();
   return text ? JSON.parse(text) : null;

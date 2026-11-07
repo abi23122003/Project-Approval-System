@@ -1,3 +1,4 @@
+import TeamProjects from './components/TeamProjects';
 import React, { useCallback, useEffect, useState } from 'react';
 import Header from '../../components/ui/Header';
 import Breadcrumbs from '../../components/ui/Breadcrumbs';
@@ -22,6 +23,7 @@ const StudentDashboard = () => {
     {error && <div role="alert" className="rounded border border-error p-4">{error} <Button onClick={load}>Retry</Button></div>}
     {loading ? <p>Loading your dashboard…</p> : project ? <section className="rounded-lg border bg-card p-6"><h2 className="text-xl font-semibold">{project.title}</h2><p className="mt-2">Status: {project.status}</p><p>Progress: {latestProgress}%</p><p className="mt-3 whitespace-pre-wrap">{project.abstract}</p><p className="mt-3">Guide: {project.mentor_faculty ?? 'Not assigned'}</p></section> : <section className="rounded-lg border bg-card p-8 text-center"><h2 className="text-xl font-semibold">No project yet</h2><p className="mt-2">Progress: 0%</p><p className="mt-2">Submit a project proposal to get started.</p><a className="mt-4 inline-block text-primary underline" href="/student-project-proposal-form">Create project proposal</a></section>}
     {!loading && project && <section className="rounded-lg border bg-card p-6"><h2 className="text-xl font-semibold">Recent progress</h2>{progress.length ? <ul className="mt-3 space-y-2">{progress.slice(0, 6).map(item => <li key={item.id} className="border-b py-2">{item.percent_complete}% — {item.steps_completed} <span className="text-sm text-muted-foreground">{item.created_at ? new Date(item.created_at).toLocaleString() : ''}</span></li>)}</ul> : <p className="mt-2">No progress updates yet.</p>}</section>}
+    {!loading && !error && <TeamProjects project={project} />}
   </main></div>;
 };
 export default StudentDashboard;

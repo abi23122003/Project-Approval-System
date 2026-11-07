@@ -1,4 +1,6 @@
 from __future__ import annotations
+from .views import PasswordResetRequestView, NotificationsView
+from .views import DocumentDownloadView, HodAllProjectsView
 
 from django.urls import re_path
 from .auth import ActiveProfileTokenRefreshView, LogoutView
@@ -54,6 +56,10 @@ from .views import (
 )
 
 urlpatterns = [
+    re_path(r"^auth/password-reset/request/?$", PasswordResetRequestView.as_view()),
+    re_path(r"^notifications/?$", NotificationsView.as_view()),
+    re_path(r"^documents/(?P<document_id>\d+)/download/?$", DocumentDownloadView.as_view()),
+    re_path(r"^hod/all-projects/?$", HodAllProjectsView.as_view()),
     re_path(r"^$", HealthView.as_view(), name="health"),
 
     re_path(r"^auth/login/?$", LoginView.as_view(), name="login"),

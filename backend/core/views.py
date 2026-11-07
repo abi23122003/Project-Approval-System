@@ -75,6 +75,7 @@ from .serializers import (
     ProjectCreateSerializer,
     ProjectDetailSerializer,
     ProjectListSerializer,
+    StudentApprovedProjectSerializer,
     ProjectStatusHistorySerializer,
     ProjectUpdateSerializer,
     UserCreateSerializer,
@@ -108,11 +109,16 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = MAX_PAGE_SIZE
 
 
+from .throttles import LoginThrottle, RegistrationThrottle, PasswordResetThrottle
+
+
 class LoginView(CustomTokenObtainPairView):
+    throttle_classes = [LoginThrottle]
     permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
 
 
 class RegisterView(APIView):
+    throttle_classes = [RegistrationThrottle]
     permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
 
     def post(self, request):
@@ -573,7 +579,7 @@ class StudentProjectView(APIView):
         return Response(ProjectDetailSerializer(project).data, status=status.HTTP_201_CREATED)
 
     def get(self, request):
-        project = Project.objects.filter(team_leader_student=request.user).first()
+        project = Project.objects.filter(Q(team_leader_student=request.user) | Q(projectmember__student=request.user, projectmember__left_at__isnull=True)).distinct().first()
         if project is None:
             return Response(None, status=status.HTTP_200_OK)  # student has no project yet
         return Response(ProjectDetailSerializer(project).data)
@@ -904,7 +910,7 @@ class FacultyReviewQueueView(APIView):
         reviewable_ids = []
         for project in projects:
             if project.workflow_review_stages is None:
-                reviewable_ids.append(project.id)
+                continue
             elif ProjectFacultyReview.objects.filter(
                 project=project,
                 review_round=project.review_round,
@@ -990,7 +996,7 @@ class StudentApprovedProjectsView(APIView):
         queryset = queryset.order_by("-approved_at")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
-        serializer = ProjectListSerializer(page, many=True)
+        serializer = StudentApprovedProjectSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
 
@@ -1000,7 +1006,7 @@ class StudentOwnProjectProgressView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        project = Project.objects.filter(team_leader_student=request.user).first()
+        project = Project.objects.filter(Q(team_leader_student=request.user) | Q(projectmember__student=request.user, projectmember__left_at__isnull=True)).distinct().first()
         if project is None:
             # Student has no project yet — return empty paginated result (200, not 404)
             return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
@@ -1022,3 +1028,72 @@ class StudentJoinRequestsView(APIView):
         page = paginator.paginate_queryset(queryset, request)
         serializer = JoinRequestSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class DocumentDownloadView(APIView):
+    def get(self, request, document_id):
+        from django.http import FileResponse, Http404
+        from .models import ProgressDocument, ProjectMember
+        document = get_object_or_404(ProgressDocument.objects.select_related('progress_update__project'), pk=document_id)
+        project = document.progress_update.project
+        profile = request.user.app_profile
+        allowed = (project.team_leader_student_id == request.user.id
+                   or ProjectMember.objects.filter(project=project, student=request.user, left_at__isnull=True).exists()
+                   or project.mentor_faculty_id == request.user.id
+                   or profile.role_code_id == Role.ADMIN
+                   or (profile.role_code_id == Role.HOD and profile.department_id == project.department_id))
+        if not allowed or not document.file:
+            raise Http404
+        try:
+            return FileResponse(document.file.open('rb'), as_attachment=True, filename=document.original_filename, content_type='application/octet-stream')
+        except FileNotFoundError:
+            raise Http404
+
+
+class HodAllProjectsView(APIView):
+    permission_classes = [RBACPermission]
+    required_action = 'hod.projects.read'
+
+    def get(self, request):
+        projects = Project.objects.filter(department_id=request.user.app_profile.department_id).order_by('-created_at')
+        paginator = StandardResultsSetPagination()
+        return paginator.get_paginated_response(ProjectDetailSerializer(paginator.paginate_queryset(projects, request), many=True).data)
+
+
+class PasswordResetRequestView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetThrottle]
+
+    def post(self, request):
+        from rest_framework import serializers
+        email = serializers.EmailField().run_validation(request.data.get('email'))
+        if settings.IS_PRODUCTION and ('console.EmailBackend' in settings.EMAIL_BACKEND or ('smtp.EmailBackend' in settings.EMAIL_BACKEND and not settings.EMAIL_HOST)):
+            return Response({'detail': 'Password recovery email is unavailable. Contact your administrator.'}, status=503)
+        for target in User.objects.filter(email__iexact=email, is_active=True, app_profile__is_active=True):
+            uid = urlsafe_base64_encode(force_bytes(target.pk))
+            token = default_token_generator.make_token(target)
+            url = f"{settings.PASSWORD_RESET_FRONTEND_URL}?{urlencode({'uid': uid, 'token': token})}"
+            try:
+                send_mail('Reset your Project Approval System password', f'Use this one-time link to choose a new password: {url}\nIf you did not request this, ignore this email.', settings.DEFAULT_FROM_EMAIL, [target.email], fail_silently=False)
+            except Exception:
+                # The response must not reveal whether the account exists.
+                pass
+        return Response({'detail': 'If an active account matches this email, a reset link will be sent.'}, status=202)
+
+
+class NotificationsView(APIView):
+    def get(self, request):
+        from .models import Notification
+        items = Notification.objects.filter(recipient=request.user).order_by('-created_at')
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(items, request)
+        return paginator.get_paginated_response([{'id': n.id, 'message': n.message, 'created_at': n.created_at, 'read_at': n.read_at} for n in page])
+
+    def patch(self, request):
+        from .models import Notification
+        from django.utils import timezone
+        from rest_framework import serializers
+        notification_id = serializers.IntegerField(min_value=1).run_validation(request.data.get("id"))
+        Notification.objects.filter(recipient=request.user, pk=notification_id, read_at__isnull=True).update(read_at=timezone.now())
+        return Response(status=204)

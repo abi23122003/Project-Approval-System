@@ -126,7 +126,15 @@ class UserListSerializer(serializers.ModelSerializer):
         return bool(obj.is_active and profile and profile.is_active)
 
 
-class ProjectCreateSerializer(serializers.ModelSerializer):
+class ProposalDetailsValidation:
+    def validate_proposal_details(self, value):
+        import json
+        if not isinstance(value, dict) or len(json.dumps(value)) > 100000:
+            raise serializers.ValidationError("Proposal details must be an object of at most 100,000 characters.")
+        return value
+
+
+class ProjectCreateSerializer(ProposalDetailsValidation, serializers.ModelSerializer):
     status = serializers.SlugRelatedField(
         slug_field="status_code",
         queryset=ProjectStatus.objects.filter(status_code__in=[ProjectStatus.DRAFT, ProjectStatus.SUBMITTED]),
@@ -135,7 +143,7 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Project
-        fields = ["mentor_faculty", "title", "abstract", "status"]
+        fields = ["mentor_faculty", "title", "abstract", "status", "proposal_details"]
 
     def to_internal_value(self, data):
         errors = {}
@@ -310,7 +318,7 @@ class StudentMentorSerializer(serializers.ModelSerializer):
         return full_name or obj.username
 
 
-class ProjectUpdateSerializer(serializers.ModelSerializer):
+class ProjectUpdateSerializer(ProposalDetailsValidation, serializers.ModelSerializer):
     status = serializers.SlugRelatedField(
         slug_field="status_code",
         queryset=ProjectStatus.objects.filter(status_code=ProjectStatus.SUBMITTED),
@@ -319,7 +327,7 @@ class ProjectUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Project
-        fields = ["mentor_faculty", "title", "abstract", "status"]
+        fields = ["mentor_faculty", "title", "abstract", "status", "proposal_details"]
         extra_kwargs = {"mentor_faculty": {"required": False}}
 
     def validate_mentor_faculty(self, value):
@@ -351,6 +359,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             "team_leader_student",
             "title",
             "abstract",
+            "proposal_details",
             "status",
             "submitted_at",
             "approved_at",
@@ -365,9 +374,14 @@ class ProjectListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            "id", "title", "status", "department", "mentor_faculty", "team_leader_student", "created_at",
+            "id", "title", "abstract", "proposal_details", "status", "department", "mentor_faculty", "team_leader_student", "created_at",
             "workflow_review_stages", "workflow_require_hod_approval", "workflow_parallel_reviews",
         ]
+
+
+class StudentApprovedProjectSerializer(ProjectListSerializer):
+    class Meta(ProjectListSerializer.Meta):
+        fields = [field for field in ProjectListSerializer.Meta.fields if field not in {"abstract", "proposal_details"}]
 
 
 class ProjectStatusHistorySerializer(serializers.ModelSerializer):
@@ -425,12 +439,29 @@ class ProgressUpdateCreateSerializer(serializers.ModelSerializer):
 
 
 class ProgressUpdateSerializer(serializers.ModelSerializer):
+    documents = serializers.SerializerMethodField()
+
+    def get_documents(self, obj):
+        return ProgressDocumentSerializer(obj.progressdocument_set.all(), many=True).data
+
     class Meta:
         model = ProjectProgressUpdate
-        fields = ["id", "project", "updated_by_student", "percent_complete", "steps_completed", "created_at"]
+        fields = ["id", "project", "updated_by_student", "percent_complete", "steps_completed", "created_at", "documents"]
 
 
 class ProgressDocumentCreateSerializer(serializers.ModelSerializer):
+    file = serializers.FileField(required=False, write_only=True, max_length=255)
+
+    def validate(self, attrs):
+        uploaded = attrs.get("file")
+        if uploaded:
+            if uploaded.size > MAX_UPLOAD_BYTES:
+                raise serializers.ValidationError({"file": "File exceeds 25 MB."})
+            attrs["original_filename"] = self.validate_original_filename(uploaded.name)
+            attrs["byte_size"] = uploaded.size
+            attrs["mime_type"] = uploaded.content_type or "application/octet-stream"
+        return attrs
+
     storage_path = serializers.CharField(required=False, allow_blank=True, write_only=True)
     original_filename = serializers.CharField(min_length=1, max_length=255, trim_whitespace=True)
     byte_size = serializers.IntegerField(min_value=0, max_value=MAX_UPLOAD_BYTES)
@@ -444,7 +475,7 @@ class ProgressDocumentCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProgressDocument
-        fields = ["storage_path", "original_filename", "mime_type", "byte_size"]
+        fields = ["file", "storage_path", "original_filename", "mime_type", "byte_size"]
 
     def validate_original_filename(self, value):
         if "/" in value or "\\" in value or ".." in value:
@@ -458,9 +489,14 @@ class ProgressDocumentCreateSerializer(serializers.ModelSerializer):
 
 
 class ProgressDocumentSerializer(serializers.ModelSerializer):
+    downloadable = serializers.SerializerMethodField()
+
+    def get_downloadable(self, obj):
+        return bool(obj.file)
+
     class Meta:
         model = ProgressDocument
-        fields = ["id", "progress_update", "storage_path", "original_filename", "mime_type", "byte_size", "uploaded_at"]
+        fields = ["id", "progress_update", "storage_path", "original_filename", "mime_type", "byte_size", "uploaded_at", "downloadable"]
 
 
 class ProjectMemberSerializer(serializers.ModelSerializer):

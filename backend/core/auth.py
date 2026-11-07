@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenObtainSerializer, TokenRefreshSerializer
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -64,6 +64,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if request.data.get('cookie_session') and response.status_code == 200:
+            from django.middleware.csrf import get_token
+            get_token(request)
+            set_refresh_cookie(response, response.data['refresh'])
+            response.data['refresh'] = 'cookie'
+        return response
+
 
 class ActiveProfileTokenRefreshSerializer(TokenRefreshSerializer):
     def validate(self, attrs):
@@ -84,6 +93,21 @@ class ActiveProfileTokenRefreshSerializer(TokenRefreshSerializer):
 class ActiveProfileTokenRefreshView(TokenRefreshView):
     serializer_class = ActiveProfileTokenRefreshSerializer
 
+    def post(self, request, *args, **kwargs):
+        cookie_mode = request.data.get('refresh') == 'cookie'
+        data = request.data.copy()
+        data['refresh'] = cookie_refresh_value(request)
+        serializer = self.get_serializer(data=data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as exc:
+            raise InvalidToken(str(exc)) from exc
+        response = Response(serializer.validated_data)
+        if cookie_mode:
+            set_refresh_cookie(response, response.data['refresh'])
+            response.data['refresh'] = 'cookie'
+        return response
+
 
 class LogoutView(APIView):
     # A signed refresh token is the credential being invalidated. Do not let an
@@ -95,11 +119,27 @@ class LogoutView(APIView):
         return "Bearer"
 
     def post(self, request):
-        refresh_value = request.data.get("refresh")
+        refresh_value = cookie_refresh_value(request)
         if not isinstance(refresh_value, str) or not refresh_value:
             raise AuthenticationFailed("A refresh token is required.")
         try:
             RefreshToken(refresh_value).blacklist()
         except TokenError as exc:
             raise AuthenticationFailed("Refresh token is invalid or expired.") from exc
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        response.delete_cookie("aps_refresh", path="/api/auth/", samesite="Strict")
+        return response
+
+
+def cookie_refresh_value(request):
+    from rest_framework.authentication import SessionAuthentication
+    if request.data.get('refresh') == 'cookie':
+        SessionAuthentication().enforce_csrf(request)
+        return request.COOKIES.get('aps_refresh', '')
+    return request.data.get('refresh')
+
+
+def set_refresh_cookie(response, token):
+    from django.conf import settings
+    response.set_cookie('aps_refresh', token, max_age=7 * 86400, httponly=True,
+                        secure=settings.IS_PRODUCTION, samesite='Strict', path='/api/auth/')
