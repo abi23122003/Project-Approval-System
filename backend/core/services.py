@@ -41,6 +41,25 @@ def _audit_write(*, actor: User | None, event_type: str, entity_type: str, entit
         details_json={"actor_user_id": getattr(actor, "id", None), **(details or {})} if actor else (details or None),
     )
 
+    # Deliver project activity only to the people involved in that project.
+    from .models import Notification
+    project = None
+    if entity_type == "Project":
+        project = Project.objects.filter(pk=entity_id).first()
+    elif entity_type in {"ProjectHodDecision", "ProjectFacultyReview", "ProjectJoinRequest", "ProjectProgressUpdate"}:
+        model = {"ProjectHodDecision": ProjectHodDecision, "ProjectFacultyReview": ProjectFacultyReview,
+                 "ProjectJoinRequest": ProjectJoinRequest, "ProjectProgressUpdate": ProjectProgressUpdate}[entity_type]
+        record = model.objects.filter(pk=entity_id).first()
+        project = record.project if record else None
+    if project and project.status_id != ProjectStatus.DRAFT:
+        recipients = set(ProjectMember.objects.filter(project=project, left_at__isnull=True).values_list("student_id", flat=True))
+        recipients.update([project.team_leader_student_id, project.mentor_faculty_id])
+        recipients.update(AppUser.objects.filter(role_code_id=Role.HOD, department_id=project.department_id, is_active=True).values_list("user_id", flat=True))
+        if entity_type == "ProjectJoinRequest":
+            recipients.add(record.student_id)
+        recipients.discard(getattr(actor, "id", None))
+        Notification.objects.bulk_create([Notification(recipient_id=user_id, message=f'{project.title}: {event_type.replace("_", " ").lower()}.') for user_id in recipients])
+
 
 def audited_db_write(
     *,
@@ -296,6 +315,8 @@ def create_project(*, actor: User, payload: dict[str, Any]) -> Project:
     ):
         raise BadRequestError("The selected mentor must be active faculty in your department.")
 
+    if ProjectMember.objects.filter(student=actor, left_at__isnull=True).exists():
+        raise ConflictError("You are already an active member of a project.")
     workflow = WorkflowConfiguration.objects.first()
     project_status = payload.get("status") or ProjectStatus.objects.get(status_code=ProjectStatus.SUBMITTED)
     if project_status.status_code not in (ProjectStatus.DRAFT, ProjectStatus.SUBMITTED):
@@ -307,6 +328,7 @@ def create_project(*, actor: User, payload: dict[str, Any]) -> Project:
         team_leader_student=actor,
         title=payload["title"],
         abstract=payload["abstract"],
+        proposal_details=payload.get("proposal_details", {}),
         status=project_status,
         submitted_at=timezone.now() if project_status.status_code == ProjectStatus.SUBMITTED else None,
         workflow_review_stages=workflow.review_stages if workflow else None,
@@ -336,7 +358,7 @@ def update_project(*, actor: User, project: Project, payload: dict[str, Any]) ->
         raise BadRequestError({"status": "The only allowed student status change is submission."})
 
     update_fields = []
-    for field in ["mentor_faculty", "title", "abstract"]:
+    for field in ["mentor_faculty", "title", "abstract", "proposal_details"]:
         if field in payload:
             setattr(project, field, payload[field])
             update_fields.append(field)
@@ -713,11 +735,13 @@ def add_progress_document(*, actor: User, progress_update: ProjectProgressUpdate
         raise ForbiddenError("Only the active student project leader can add project documents.")
     if project.status_id != ProjectStatus.APPROVED:
         raise ConflictError("Documents can only be added to progress updates for approved projects.")
+    uploaded_file = payload.get("file")
     original_filename = payload["original_filename"]
     storage_path = f"progress/{project.id}/{progress_update.id}/{uuid.uuid4().hex}_{original_filename}"
     return ProgressDocument.objects.create(
         progress_update=progress_update,
         storage_path=storage_path,
+        file=uploaded_file,
         original_filename=original_filename,
         mime_type=payload.get("mime_type"),
         byte_size=payload.get("byte_size"),

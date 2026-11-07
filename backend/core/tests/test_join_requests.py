@@ -67,6 +67,26 @@ class JoinRequestApiTests(APITestCase):
             format="json",
         )
 
+    def test_authorized_requests_include_requester_name(self):
+        project = self.make_project()
+        student = self.make_user(Role.STUDENT, self.department)
+        student.first_name = 'Taylor'
+        student.last_name = 'Student'
+        student.save()
+        created = self.request_join(student, project)
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertEqual(created.data['student_name'], 'Taylor Student')
+        endpoint = '/api/join-requests/'
+        leader_results = self.client_as(project.team_leader_student).get(endpoint).data['results']
+        self.assertEqual(leader_results[0]['student_name'], 'Taylor Student')
+        unrelated = self.make_user(Role.STUDENT, self.department)
+        self.assertEqual(self.client_as(unrelated).get(endpoint).data['results'], [])
+        student.first_name = ''
+        student.last_name = ''
+        student.save()
+        own = self.client_as(student).get('/api/student/join-requests/').data['results']
+        self.assertEqual(own[0]['student_name'], student.username)
+
     def test_join_unapproved_project_returns_conflict(self):
         project = self.make_project(status=ProjectStatus.SUBMITTED)
         student = self.make_user(Role.STUDENT, self.department)

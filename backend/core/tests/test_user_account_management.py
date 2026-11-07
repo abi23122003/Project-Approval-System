@@ -23,6 +23,8 @@ User = get_user_model()
 )
 class UserAccountManagementTests(TestCase):
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
         for code, _label in Role.ROLE_CHOICES:
             Role.objects.get_or_create(role_code=code)
         self.department = Department.objects.create(code="SCI", name="Science")

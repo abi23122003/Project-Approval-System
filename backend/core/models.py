@@ -201,6 +201,7 @@ class Project(models.Model):
     )
     title = models.CharField(max_length=200)
     abstract = models.TextField()
+    proposal_details = models.JSONField(default=dict, blank=True)
     status = models.ForeignKey(ProjectStatus, on_delete=models.PROTECT, db_column="status_code")
     submitted_at = models.DateTimeField(null=True, blank=True)
     review_round = models.PositiveIntegerField(default=1)
@@ -368,6 +369,7 @@ class ProjectProgressUpdate(models.Model):
 
 
 class ProgressDocument(models.Model):
+    file = models.FileField(upload_to="project-documents/%Y/%m/", blank=True)
     progress_update = models.ForeignKey(ProjectProgressUpdate, on_delete=models.CASCADE)
     storage_path = models.CharField(max_length=500)
     original_filename = models.CharField(max_length=255)
@@ -406,3 +408,10 @@ class AuditEvent(models.Model):
             models.Index(fields=["event_time"], name="core_audit_event_35fc25_idx"),
             models.Index(fields=["entity_type", "entity_id"], name="core_audit_entity__3d1a1a_idx"),
         ]
+
+
+class Notification(models.Model):
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)

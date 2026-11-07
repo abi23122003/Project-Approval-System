@@ -254,6 +254,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+MEDIA_ROOT = Path(env(
+    'DJANGO_MEDIA_ROOT',
+    None if IS_PRODUCTION else str(BASE_DIR / 'private-media'),
+    required=IS_PRODUCTION,
+))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -278,7 +283,16 @@ PASSWORD_RESET_FRONTEND_URL = env(
     "http://localhost:4028/reset-password",
 )
 
+try:
+    TRUSTED_PROXY_COUNT = int(env("DJANGO_NUM_PROXIES", "0"))
+except ValueError as exc:
+    raise ImproperlyConfigured("DJANGO_NUM_PROXIES must be a non-negative integer.") from exc
+if TRUSTED_PROXY_COUNT < 0:
+    raise ImproperlyConfigured("DJANGO_NUM_PROXIES must be a non-negative integer.")
+
 REST_FRAMEWORK = {
+    # Ignore client-supplied forwarding headers unless trusted proxies are configured.
+    'NUM_PROXIES': TRUSTED_PROXY_COUNT,
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'core.authentication.ActiveProfileJWTAuthentication',
     ),

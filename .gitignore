@@ -54,3 +54,5 @@ frontend/dist/
 # Python virtual environment
 .venv/
 backend/.venv/
+
+backend/private-media/

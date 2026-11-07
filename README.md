@@ -67,11 +67,29 @@ npm run build
 
 From the repository root, run backend tests with `python backend/manage.py test core`. Frontend test scripts are `npm run test:auth` and `npm run test:admin-stats`, run from `frontend/`; build with `npm run build`.
 
-## Known limitations
+<!-- coderabbit-ai-generated:v1 -->
 
-- file contents are not stored (only metadata)
-- no comment-creation endpoint
-- no notifications API
-- no password-reset email unless SMTP is configured
-- tokens are kept in localStorage
-- no login rate limiting
+<!-- coderabbit-ai-generated-section:v1:5f81dce92f15a28ca30a3483d3bab30d08a2e0c235225c956a24f167e4ed26b0 -->
+
+## Runtime and storage
+
+The frontend requires Node 20.19+ or Node 22.12+ (Node 24 is supported). Run `npm test` from `frontend/` for all utility tests.
+
+Run `python backend/manage.py migrate` after updating. Proposal planning details and personal notifications are persisted by migrations 0013 and 0014. New notifications are generated for project activity; historical audit events are not backfilled.
+
+Uploaded files use private Django storage under `backend/private-media/` by default. Set `DJANGO_MEDIA_ROOT` to a durable, backed-up directory in deployment. Do not expose this directory as public static media: downloads are served through the authenticated API. Older metadata-only documents have no downloadable contents.
+
+Browser login uses an HttpOnly refresh cookie with SameSite=Strict and CSRF protection for refresh and logout. Short-lived access tokens remain in localStorage. Existing JSON token API clients remain supported. Deploy frontend and API on the same origin (the development Vite proxy provides this). Use HTTPS in production.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:b3105c6bffd31147d160544bdfacad8a619e63a2d02267da570ddd9f5c16438c -->
+
+Login, registration and recovery requests are rate limited by IP. Use a shared Django cache across workers to enforce a common limit in multi-worker deployments; the default local-memory cache only limits each worker. By default, `DJANGO_NUM_PROXIES=0` ignores untrusted `X-Forwarded-For` headers. For a proxy deployment, set the exact trusted proxy count, block direct access to Django, and configure the trusted proxy to supply the client address. Configure an upload request-body limit at the reverse proxy (allow multipart overhead above the 25 MB file limit); Django uses its default 2.5 MB memory-to-disk threshold and the API validates file size.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+Self-service password recovery requires SMTP configuration for real email delivery. Development uses console email. Recovery links use `PASSWORD_RESET_FRONTEND_URL` and must point to the deployed frontend.
+
+
+<!-- /coderabbit-ai-generated:v1 -->

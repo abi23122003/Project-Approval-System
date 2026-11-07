@@ -170,6 +170,8 @@ class AuthorizationIntegrationTests(TestCase):
         approved_student_b = self.make_user("approved-student-b", Role.STUDENT, self.department_b)
         approved_a = self.make_project(self.department_a, self.faculty_a, approved_student_a, ProjectStatus.APPROVED)
         approved_b = self.make_project(self.department_b, self.faculty_b, approved_student_b, ProjectStatus.APPROVED)
+        self.project_a.workflow_review_stages = 1
+        self.project_a.save(update_fields=["workflow_review_stages"])
         queue = self.client_as(self.faculty_a).get("/api/faculty/projects/review-queue/")
         approved = self.client_as(self.faculty_a).get("/api/faculty/projects/approved/")
         hod_endpoint = self.client_as(self.faculty_a).get("/api/hod/projects/")

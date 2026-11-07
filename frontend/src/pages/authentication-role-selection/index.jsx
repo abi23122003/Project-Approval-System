@@ -129,6 +129,7 @@ const AuthenticationRoleSelection = () => {
         body: JSON.stringify({
           username: formData?.username,
           password: formData?.password,
+          cookie_session: true,
           expected_role: expectedRoleCode
         })
       });
@@ -218,12 +219,16 @@ const AuthenticationRoleSelection = () => {
     setShowForgotPasswordModal(true);
   };
 
-  const handleForgotPasswordSubmit = (email) => {
+  const handleForgotPasswordSubmit = async (email) => {
     if (!email.trim()) {
       setForgotPasswordMessage('Please enter a valid email address.');
       return;
     }
-    setForgotPasswordMessage('Password reset is not configured. Contact your administrator to reset your password.');
+    try {
+      const response = await fetch(`${API_BASE}/auth/password-reset/request/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const data = await response.json().catch(() => ({}));
+      setForgotPasswordMessage(response.ok ? (data.detail || 'Could not request password reset.') : formatApiError(data, 'Could not request password reset.'));
+    } catch { setForgotPasswordMessage('Could not contact the server. Please try again.'); }
   };
 
   return (
@@ -315,7 +320,7 @@ const AuthenticationRoleSelection = () => {
               </button>
             </div>
             <p className="text-sm text-muted-foreground mb-6">
-              Password reset is not configured. Contact your administrator for help.
+              Enter your account email to request a reset link.
             </p>
             <div className="space-y-4">
               <input
@@ -341,7 +346,7 @@ const AuthenticationRoleSelection = () => {
                   onClick={() => handleForgotPasswordSubmit(forgotPasswordEmail)}
                   className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-smooth"
                 >
-                  Reset Help
+                  Send reset link
                 </button>
               </div>
             </div>
