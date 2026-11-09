@@ -18,6 +18,10 @@ const EVENT_GROUPS = {
   JOIN_REQUEST_CANCELLED: 'Join Requests',
   PROGRESS_UPDATE_CREATED: 'Progress',
   PROGRESS_DOCUMENT_ADDED: 'Progress',
+  LOGIN_SUCCEEDED: 'Authentication',
+  LOGIN_FAILED: 'Authentication',
+  REGISTERED: 'Authentication',
+  PASSWORD_RESET_COMPLETED: 'Authentication',
 };
 
 const ENTITY_CATEGORIES = {
@@ -108,6 +112,23 @@ export const formatAuditEvent = (event = {}) => {
     message = details.progress_update_id
       ? `A document was added to progress update #${details.progress_update_id}.`
       : 'A document was added to a project progress update.';
+  } else if (eventType === 'LOGIN_SUCCEEDED') {
+    title = 'Login succeeded';
+    const username = details.username || actor;
+    message = `User ${username} signed in successfully.`;
+  } else if (eventType === 'LOGIN_FAILED') {
+    title = 'Login failed';
+    const username = details.username || 'unknown';
+    message = `Failed sign-in attempt for user ${username}.`;
+  } else if (eventType === 'REGISTERED') {
+    title = 'User registered';
+    const username = details.username || 'user';
+    message = `New user account registered for ${username}.`;
+  } else if (eventType === 'PASSWORD_RESET_COMPLETED') {
+    title = 'Password reset completed';
+    message = event.entity_id
+      ? `Password reset was completed for user #${event.entity_id}.`
+      : 'Password reset was completed.';
   } else {
     const record = category === 'Other Activity' ? 'system' : category.toLowerCase();
     message = `An activity involving ${record} was recorded by ${actor}.`;

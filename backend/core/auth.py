@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
@@ -16,7 +17,9 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .models import Role
 from .config import GENERIC_AUTH_ERROR
 
+logger = logging.getLogger(__name__)
 _GENERIC_AUTH_ERROR = GENERIC_AUTH_ERROR
+USERNAME_MAX_LENGTH = 150
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -54,10 +57,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "refresh": str(refresh),
             "access": str(refresh.access_token),
             "user": {
-            "id": self.user.id,
-            "username": self.user.get_username(),
-            "email": self.user.email,
-            "role_code": profile.role_code_id,
+                "id": self.user.id,
+                "username": self.user.get_username(),
+                "email": self.user.email,
+                "role_code": profile.role_code_id,
             },
         }
 
@@ -74,11 +77,49 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
 
+def _record_login_audit(event_type: str, actor=None, entity_id=None, username: str = ""):
+    try:
+        from .models import AuditEvent
+        AuditEvent.objects.create(
+            actor=actor,
+            event_type=event_type,
+            entity_type="AppUser",
+            entity_id=entity_id,
+            details_json={"username": username},
+        )
+    except Exception:
+        logger.exception("Failed to record %s audit event", event_type)
+
+
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     # Scoped throttle: "login" scope → 5 requests/min (see REST_FRAMEWORK settings)
     throttle_classes = (ScopedRateThrottle,)
     throttle_scope = "login"
+
+    def post(self, request, *args, **kwargs):
+        username = request.data.get("username")
+        safe_username = str(username)[:USERNAME_MAX_LENGTH] if username else ""
+        try:
+            response = super().post(request, *args, **kwargs)
+        except Exception:
+            _record_login_audit("LOGIN_FAILED", actor=None, entity_id=None, username=safe_username)
+            raise
+
+        if response.status_code == 200:
+            user_data = response.data.get("user") or {}
+            user_id = user_data.get("id")
+            user_model = get_user_model()
+            user_obj = user_model.objects.filter(pk=user_id).first() if user_id else None
+            _record_login_audit(
+                "LOGIN_SUCCEEDED",
+                actor=user_obj,
+                entity_id=user_id,
+                username=safe_username or (user_obj.username if user_obj else ""),
+            )
+        else:
+            _record_login_audit("LOGIN_FAILED", actor=None, entity_id=None, username=safe_username)
+        return response
 
 
 class ActiveProfileTokenRefreshSerializer(TokenRefreshSerializer):

@@ -90,6 +90,7 @@ const AuthenticationRoleSelection = () => {
   const [selectedRole, setSelectedRole] = useState(initialRole);
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [registrationNotice, setRegistrationNotice] = useState('');
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [forgotPasswordMessage, setForgotPasswordMessage] = useState('');
   const [authMode, setAuthMode] = useState('login');
@@ -136,6 +137,8 @@ const AuthenticationRoleSelection = () => {
 
   const handleModeChange = (newMode) => {
     setAuthMode(newMode);
+    setLoginError('');
+    setRegistrationNotice('');
     if (newMode === 'register' && selectedRole?.value !== 'student') {
       setSelectedRole(roles.find(role => role.value === 'student') || null);
     }
@@ -148,6 +151,7 @@ const AuthenticationRoleSelection = () => {
   const handleRoleSelect = (role) => {
     setSelectedRole(role);
     setLoginError('');
+    setRegistrationNotice('');
   };
 
   const handleLogin = async (formData) => {
@@ -160,6 +164,7 @@ const AuthenticationRoleSelection = () => {
     submissionLock.current = true;
     setIsLoading(true);
     setLoginError('');
+    setRegistrationNotice('');
     try {
       await logoutSession(false);
       const resp = await fetch(`${API_BASE}/auth/login/`, {
@@ -241,7 +246,8 @@ const AuthenticationRoleSelection = () => {
         return;
       }
 
-      setLoginError('Account created. An administrator must assign your department before you can submit a project.');
+      setLoginError('');
+      setRegistrationNotice(data?.message || 'If this email address is not registered, an account has been created.');
       setAuthMode('login');
     } catch {
       setLoginError('Account creation failed. Ensure the backend is running on http://localhost:8000 and the frontend can reach /api (Vite proxy).');
@@ -316,6 +322,7 @@ const AuthenticationRoleSelection = () => {
                 onForgotPassword={handleForgotPassword}
                 isLoading={isLoading}
                 error={loginError}
+                notice={registrationNotice}
                 defaultUsername={selectedRole?.value === 'admin' ? devDefaultAdminEmail : undefined}
                 defaultPassword={selectedRole?.value === 'admin' ? devDefaultAdminPassword : undefined}
                 autoSubmit={selectedRole?.value === 'admin' ? devAutoLogin : false}

@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -15,14 +16,23 @@ from core.models import AppUser, AuditEvent, Department, Role
 
 User = get_user_model()
 
+TEST_CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "user-account-management-test-cache",
+    }
+}
+
 
 @override_settings(
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     DEFAULT_FROM_EMAIL="no-reply@example.edu",
     PASSWORD_RESET_FRONTEND_URL="https://app.example.edu/reset-password",
+    CACHES=TEST_CACHES,
 )
 class UserAccountManagementTests(TestCase):
     def setUp(self):
+        cache.clear()
         for code, _label in Role.ROLE_CHOICES:
             Role.objects.get_or_create(role_code=code)
         self.department = Department.objects.create(code="SCI", name="Science")
@@ -36,6 +46,10 @@ class UserAccountManagementTests(TestCase):
         self.faculty.app_profile.save(update_fields=["is_active"])
         self.client = APIClient()
         self.admin_client = self.client_as(self.admin)
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
 
     def make_user(self, username, role, department=None):
         user = User.objects.create_user(

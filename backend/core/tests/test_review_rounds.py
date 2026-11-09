@@ -22,6 +22,7 @@ class ReviewRoundApiTests(APITestCase):
         self.department = Department.objects.create(code="ROUND", name="Review Rounds")
         self.student = self.make_user("round-student", Role.STUDENT)
         self.faculty = self.make_user("round-faculty", Role.FACULTY)
+        self.faculty_2 = self.make_user("round-faculty-2", Role.FACULTY)
         self.hod = self.make_user("round-hod", Role.HOD)
 
     def make_user(self, username, role_code):
@@ -153,8 +154,12 @@ class ReviewRoundApiTests(APITestCase):
             list(ProjectFacultyReview.objects.filter(project=project).order_by("review_round").values_list("review_round", "stage")),
             [(1, 1), (2, 1)],
         )
-        current_queue = faculty_client.get("/api/faculty/projects/review-queue/")
-        self.assertIn(project.id, [item["id"] for item in current_queue.data["results"]])
+        # Mentor finished stage 1, so project is no longer in mentor's queue
+        mentor_queue = faculty_client.get("/api/faculty/projects/review-queue/")
+        self.assertNotIn(project.id, [item["id"] for item in mentor_queue.data["results"]])
+        # But project is in other department faculty member's queue for stage 2
+        other_faculty_queue = self.client_as(self.faculty_2).get("/api/faculty/projects/review-queue/")
+        self.assertIn(project.id, [item["id"] for item in other_faculty_queue.data["results"]])
 
     def test_first_submission_keeps_review_round_one(self):
         draft_student = self.make_user("round-draft-student", Role.STUDENT)
@@ -168,6 +173,6 @@ class ReviewRoundApiTests(APITestCase):
 
         project.refresh_from_db()
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(project.status_id, ProjectStatus.SUBMITTED)
         self.assertEqual(project.review_round, 1)
+        self.assertEqual(project.status_id, ProjectStatus.SUBMITTED)
         self.assertIsNotNone(project.submitted_at)

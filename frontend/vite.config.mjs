@@ -1,6 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -9,6 +13,14 @@ export default defineConfig({
   build: {
     outDir: "build",
     chunkSizeWarningLimit: 2000,
+  },
+  resolve: {
+    alias: {
+      components: path.resolve(__dirname, "src/components"),
+      pages: path.resolve(__dirname, "src/pages"),
+      utils: path.resolve(__dirname, "src/utils"),
+      styles: path.resolve(__dirname, "src/styles"),
+    },
   },
   plugins: [tsconfigPaths(), react()],
   server: {
@@ -22,5 +34,11 @@ export default defineConfig({
         secure: false,
       },
     },
-  }
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.js',
+    include: ['src/**/__tests__/**/*.{js,jsx,ts,tsx}', 'src/**/*.spec.{js,jsx,ts,tsx}'],
+  },
 });

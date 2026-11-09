@@ -5,6 +5,11 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from django.core.exceptions import ImproperlyConfigured
+from django.http import HttpResponse
+from django.test import RequestFactory, TestCase as DjangoTestCase
+from rest_framework.test import APIClient
+
+from core.middleware import SecurityHeadersMiddleware
 
 
 SETTINGS_PATH = Path(__file__).resolve().parents[2] / "server" / "settings.py"
@@ -92,3 +97,37 @@ class DjangoSecuritySettingsTests(TestCase):
                 **valid_production_environment(),
                 "DJANGO_SECURE_PROXY_SSL_HEADER": "bad-format",
             })
+
+
+class ContentSecurityPolicyMiddlewareTests(DjangoTestCase):
+    def test_response_contains_content_security_policy_header(self):
+        client = APIClient()
+        response = client.get("/api/departments/")
+        self.assertIn("Content-Security-Policy", response.headers)
+        csp = response.headers["Content-Security-Policy"]
+        self.assertIn("script-src 'self'", csp)
+        self.assertIn("default-src 'self'", csp)
+
+    def test_admin_path_allows_unsafe_inline_for_django_admin(self):
+        rf = RequestFactory()
+        request = rf.get("/admin/login/")
+        middleware = SecurityHeadersMiddleware(lambda req: HttpResponse("Admin Login"))
+        response = middleware(request)
+        self.assertIn("Content-Security-Policy", response.headers)
+        csp = response.headers["Content-Security-Policy"]
+        self.assertIn("script-src 'self' 'unsafe-inline'", csp)
+        self.assertIn("style-src 'self' 'unsafe-inline'", csp)
+
+    def test_preserves_pre_existing_csp_header(self):
+        custom_csp = "default-src 'none'; custom-directive 'custom';"
+
+        def view_with_custom_csp(req):
+            resp = HttpResponse("Custom")
+            resp.headers["Content-Security-Policy"] = custom_csp
+            return resp
+
+        rf = RequestFactory()
+        request = rf.get("/api/custom/")
+        middleware = SecurityHeadersMiddleware(view_with_custom_csp)
+        response = middleware(request)
+        self.assertEqual(response.headers["Content-Security-Policy"], custom_csp)

@@ -8,15 +8,15 @@ A modern React-based project utilizing the latest frontend technologies and tool
 - **Vite** - Lightning-fast build tool and development server
 - **Redux Toolkit** - State management with simplified Redux setup
 - **TailwindCSS** - Utility-first CSS framework with extensive customization
-- **React Router v6** - Declarative routing for React applications
+- **React Router v7** - Declarative routing for React applications
 - **Data Visualization** - Integrated D3.js and Recharts for powerful data visualization
 - **Form Management** - React Hook Form for efficient form handling
 - **Animation** - Framer Motion for smooth UI animations
-- **Testing** - Jest and React Testing Library setup
+- **Testing** - Vitest and React Testing Library setup
 
 ## 📋 Prerequisites
 
-- Node.js 18 LTS or 20 and newer (Vite 5 requires `^18.0.0 || >=20.0.0`)
+- Node.js 22 (>=22.12.0), 24, or 26+ (odd-numbered Node 23 and 25 are not supported; Vitest 5 requires `^22.12.0 || ^24.0.0 || >=26.0.0`)
 - npm 9 or newer (the checked-in lockfile uses lockfile version 3)
 
 ## 🛠️ Installation

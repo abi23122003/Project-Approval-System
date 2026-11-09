@@ -28,6 +28,33 @@ Production enables HTTPS redirects, secure session and CSRF cookies, and one-yea
 
 Run `manage.py migrate` during deployment. This creates Simple JWT blacklist tables and preserves existing application records. Logout invalidates the submitted refresh token; already-issued access tokens remain valid until their configured expiration (one hour) and are not server-revoked by logout.
 
+## Cache backend configuration (`CACHES`)
+
+Django REST Framework rate throttling requires a shared cache backend across multiple workers:
+
+- **Redis**: Set the `REDIS_URL` environment variable (e.g. `redis://127.0.0.1:6379/1`). When `REDIS_URL` is set, Django uses `django.core.cache.backends.redis.RedisCache`.
+- **Database Cache (Default fallback)**: If `REDIS_URL` is not set, `CACHES` defaults to `django.core.cache.backends.db.DatabaseCache` with the table `project_approval_cache`.
+- Migration `0013_create_cache_table` automatically executes `createcachetable` during `manage.py migrate`. Alternatively, it can be created manually with:
+
+```powershell
+backend/.venv/Scripts/python.exe backend/manage.py createcachetable
+```
+
+A shared cache enables scoped throttles (such as login at 5 requests/min and registration at 5 requests/min) across multi-threaded or multi-process WSGI/ASGI workers. Note that DRF's rate throttles are not atomic; concurrent requests may race and exceed the stated limits, including the login throttle.
+
+## Content Security Policy (CSP) and token handling
+
+- **Backend API CSP**: Responses include `Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none';` via `core.middleware.SecurityHeadersMiddleware`. For admin pages requiring scripts/styles, admin-compatible directives are supported, and any pre-existing CSP headers set by views or upstream middleware are preserved.
+- **Frontend Host CSP**: The web server serving the frontend SPA (e.g. Nginx, Cloudflare Pages, Netlify) should configure matching headers:
+  ```http
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.yourdomain.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none';
+  ```
+- **Token Security**: Authentication tokens (JWT access and refresh) must never be transmitted via URL query parameters or URL path segments. All authenticated API requests require the standard HTTP header:
+  ```http
+  Authorization: Bearer <access_token>
+  ```
+  Token refresh payloads are exchanged strictly within the HTTP request body (`{"refresh": "<token>"}`). This prevents credential leakage into access logs, web server history, proxy logs, or browser Referer headers.
+
 ## SQLite
 
 SQLite is the development default. The normal database path remains `backend/db.sqlite3`. To use a separate database file, set `DJANGO_SQLITE_PATH`; this is useful for disposable migration checks and does not replace the default database:

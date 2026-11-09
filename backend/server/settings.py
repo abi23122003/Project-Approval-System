@@ -100,6 +100,7 @@ INSTALLED_APPS += ['core']
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'core.middleware.SecurityHeadersMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -264,6 +265,25 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Caching and DRF Rate Limiting
+# Shared cache backend: Redis if REDIS_URL is provided, otherwise database cache.
+# Enables throttles to work reliably across multiple workers.
+REDIS_URL = env("REDIS_URL")
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': 'project_approval_cache',
+        }
+    }
 
 # Password reset mail is delivered by the console in development and by the
 # configured SMTP service in production. Credentials are deployment secrets.

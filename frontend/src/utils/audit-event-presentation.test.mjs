@@ -39,6 +39,49 @@ test('unknown event types have safe readable fallbacks and omit raw structured v
   assert.equal(JSON.stringify(formatted).includes('private_key'), false);
 });
 
+test('authentication events format with descriptive messages without secrets', () => {
+  const loginOk = formatAuditEvent({
+    id: 10,
+    event_type: 'LOGIN_SUCCEEDED',
+    entity_type: 'AppUser',
+    entity_id: 5,
+    details_json: { username: 'student@example.edu' },
+  });
+  assert.equal(loginOk.title, 'Login succeeded');
+  assert.equal(loginOk.message, 'User student@example.edu signed in successfully.');
+  assert.equal(loginOk.type, 'Authentication');
+
+  const loginFail = formatAuditEvent({
+    id: 11,
+    event_type: 'LOGIN_FAILED',
+    entity_type: 'AppUser',
+    details_json: { username: 'attacker@example.edu' },
+  });
+  assert.equal(loginFail.title, 'Login failed');
+  assert.equal(loginFail.message, 'Failed sign-in attempt for user attacker@example.edu.');
+  assert.equal(loginFail.type, 'Authentication');
+
+  const registered = formatAuditEvent({
+    id: 12,
+    event_type: 'REGISTERED',
+    entity_type: 'AppUser',
+    entity_id: 6,
+    details_json: { username: 'newstudent@example.edu', role: 'STUDENT' },
+  });
+  assert.equal(registered.title, 'User registered');
+  assert.equal(registered.message, 'New user account registered for newstudent@example.edu.');
+
+  const pwReset = formatAuditEvent({
+    id: 13,
+    event_type: 'PASSWORD_RESET_COMPLETED',
+    entity_type: 'AppUser',
+    entity_id: 6,
+    details_json: {},
+  });
+  assert.equal(pwReset.title, 'Password reset completed');
+  assert.equal(pwReset.message, 'Password reset was completed for user #6.');
+});
+
 test('audit activity filters combine search, event group, category, and time range', () => {
   const events = [
     { id: 1, event_type: 'DEPARTMENT_UPDATED', entity_type: 'Department', actor: 2, event_time: baseTime.toISOString(), details_json: { before: { name: 'QA Test Department', is_active: true }, after: { name: 'QA Test Department', is_active: false } } },

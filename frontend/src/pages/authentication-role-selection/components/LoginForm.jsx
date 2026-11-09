@@ -11,6 +11,7 @@ const LoginForm = ({
   onForgotPassword,
   isLoading,
   error,
+  notice,
   defaultUsername,
   defaultPassword,
   autoSubmit = false,
@@ -118,6 +119,11 @@ const LoginForm = ({
           <Icon name={showPassword ? 'EyeOff' : 'Eye'} size={18} />
         </button>
       </div>
+      {notice && (
+        <div className="p-3 bg-muted border border-border rounded-lg text-sm text-foreground">
+          {notice}
+        </div>
+      )}
       {error && (
         <div className="flex items-start gap-2 p-3 bg-error/10 border border-error/20 rounded-lg">
           <Icon name="AlertCircle" size={18} color="var(--color-error)" className="flex-shrink-0 mt-0.5" />

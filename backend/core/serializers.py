@@ -292,10 +292,15 @@ class FacultyProjectReviewCreateSerializer(serializers.Serializer):
 
 
 class FacultyProjectReviewSerializer(serializers.ModelSerializer):
+    faculty_name = serializers.SerializerMethodField()
+
     class Meta:
         model = ProjectFacultyReview
-        fields = ["id", "project", "faculty", "stage", "review_round", "decision", "reason", "reviewed_at"]
+        fields = ["id", "project", "faculty", "faculty_name", "stage", "review_round", "decision", "reason", "reviewed_at"]
         read_only_fields = fields
+
+    def get_faculty_name(self, obj):
+        return _user_display_name(obj.faculty)
 
 
 class StudentMentorSerializer(serializers.ModelSerializer):
@@ -347,11 +352,60 @@ def _user_display_name(user) -> str:
     return full_name or user.username
 
 
-class ProjectDetailSerializer(serializers.ModelSerializer):
+class ProjectApprovalStagesMixin:
+    """Consolidated mixin for stage progress and HOD approval eligibility."""
+
+    def get_approved_stages(self, obj) -> int:
+        if hasattr(obj, "approved_stage_count"):
+            return obj.approved_stage_count
+        return ProjectFacultyReview.objects.filter(
+            project=obj,
+            review_round=obj.review_round,
+            decision=ProjectFacultyReview.APPROVE,
+        ).count()
+
+    def get_required_stages(self, obj) -> int | None:
+        return obj.workflow_review_stages
+
+    def get_faculty_approved_stages(self, obj) -> int:
+        return self.get_approved_stages(obj)
+
+    def get_faculty_required_stages(self, obj) -> int | None:
+        return self.get_required_stages(obj)
+
+    def get_awaiting_hod(self, obj) -> bool:
+        if obj.status_id not in (ProjectStatus.SUBMITTED, ProjectStatus.UNDER_REVIEW):
+            return False
+        if obj.workflow_review_stages is not None and not obj.workflow_require_hod_approval:
+            return False
+        if hasattr(obj, "has_decision"):
+            has_decision = obj.has_decision
+        else:
+            has_decision = ProjectHodDecision.objects.filter(
+                project=obj,
+                review_round=obj.review_round,
+            ).exists()
+        if has_decision:
+            return False
+        if obj.workflow_review_stages is not None and not obj.workflow_parallel_reviews:
+            return self.get_approved_stages(obj) >= obj.workflow_review_stages
+        return True
+
+    def get_can_hod_approve(self, obj) -> bool:
+        return self.get_awaiting_hod(obj)
+
+
+class ProjectDetailSerializer(ProjectApprovalStagesMixin, serializers.ModelSerializer):
     status = serializers.CharField(source="status.status_code")
     student_name = serializers.SerializerMethodField()
     mentor_name = serializers.SerializerMethodField()
     is_team_leader = serializers.SerializerMethodField()
+    approved_stages = serializers.SerializerMethodField()
+    required_stages = serializers.SerializerMethodField()
+    faculty_approved_stages = serializers.SerializerMethodField()
+    faculty_required_stages = serializers.SerializerMethodField()
+    awaiting_hod = serializers.SerializerMethodField()
+    can_hod_approve = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -370,6 +424,15 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             "approved_at",
             "created_at",
             "updated_at",
+            "workflow_review_stages",
+            "workflow_require_hod_approval",
+            "workflow_parallel_reviews",
+            "approved_stages",
+            "required_stages",
+            "faculty_approved_stages",
+            "faculty_required_stages",
+            "awaiting_hod",
+            "can_hod_approve",
         ]
 
     def get_student_name(self, obj):
@@ -385,10 +448,16 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         return obj.team_leader_student_id == request.user.id
 
 
-class ProjectListSerializer(serializers.ModelSerializer):
+class ProjectListSerializer(ProjectApprovalStagesMixin, serializers.ModelSerializer):
     status = serializers.CharField(source="status.status_code")
     student_name = serializers.SerializerMethodField()
     mentor_name = serializers.SerializerMethodField()
+    approved_stages = serializers.SerializerMethodField()
+    required_stages = serializers.SerializerMethodField()
+    faculty_approved_stages = serializers.SerializerMethodField()
+    faculty_required_stages = serializers.SerializerMethodField()
+    awaiting_hod = serializers.SerializerMethodField()
+    can_hod_approve = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -398,6 +467,8 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "team_leader_student", "student_name",
             "created_at",
             "workflow_review_stages", "workflow_require_hod_approval", "workflow_parallel_reviews",
+            "approved_stages", "required_stages", "faculty_approved_stages", "faculty_required_stages",
+            "awaiting_hod", "can_hod_approve",
         ]
 
     def get_student_name(self, obj):

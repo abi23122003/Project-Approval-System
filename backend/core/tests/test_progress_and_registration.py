@@ -1,10 +1,12 @@
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from rest_framework.test import APIClient, APITestCase
 
 from core.config import GENERIC_AUTH_ERROR, MAX_UPLOAD_BYTES
 from core.errors import ConflictError, ForbiddenError
 from core.models import (
     AppUser,
+    AuditEvent,
     Department,
     ProgressDocument,
     Project,
@@ -20,6 +22,7 @@ User = get_user_model()
 
 class ProgressAndRegistrationApiTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.department = Department.objects.create(code="PROG", name="Progress Department")
         self.student = self.make_user("progress-student", Role.STUDENT, self.department)
         self.other_student = self.make_user("other-student", Role.STUDENT, self.department)
@@ -230,12 +233,20 @@ class ProgressAndRegistrationApiTests(APITestCase):
             format="json",
         )
 
+        # Both return 201-style neutral response that does not reveal whether the email exists
         self.assertEqual(first.status_code, 201, first.data)
-        self.assertEqual(second.status_code, 409, second.data)
-        self.assertEqual(second.data["detail"], GENERIC_AUTH_ERROR)
-        created = User.objects.get(pk=first.data["id"])
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertEqual(first.data, second.data)
+        self.assertIn("message", second.data)
+        self.assertEqual(User.objects.filter(email="dup@x.com").count(), 1)
+        created = User.objects.get(email="dup@x.com")
         self.assertEqual(created.username, "dup@x.com")
         self.assertEqual(created.email, "dup@x.com")
+        # Ensure second attempt did not overwrite or authenticate with the new password
+        self.assertTrue(created.check_password("Str0ng-Test-Pass-91!"))
+        self.assertFalse(created.check_password("Other-Str0ng-Pass-82!"))
+        # Verify REGISTERED audit event was logged only for the newly created account
+        self.assertEqual(AuditEvent.objects.filter(event_type="REGISTERED", entity_id=created.id).count(), 1)
 
     def test_registration_validates_password_strength_and_accepts_strong_password(self):
         weak = APIClient().post(

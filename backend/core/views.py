@@ -4,11 +4,14 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import get_user_model, password_validation
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Count, Exists, F, IntegerField, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
+from django.http import Http404
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.shortcuts import get_object_or_404
@@ -50,6 +53,7 @@ from .config import (
     HEALTH_RESPONSE,
     HOD_SUBMITTED_STATUS_CODES,
 )
+from .errors import ConflictError
 from .permissions import RBACPermission
 from .serializers import (
     AuditEventSerializer,
@@ -130,19 +134,58 @@ class RegisterView(APIView):
         if role_obj.role_code not in ALLOWED_REGISTRATION_ROLES:
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        email = serializer.validated_data["email"].strip()
-        user = create_user_public(
-            payload={
-                "username": email,
-                "email": email,
-                "password": serializer.validated_data["password"],
-                "first_name": serializer.validated_data.get("first_name", ""),
-                "last_name": serializer.validated_data.get("last_name", ""),
-                "role_code": role_obj,
-                "department": None,
-            }
+        password = serializer.validated_data["password"]
+        email = serializer.validated_data["email"].strip().lower()
+        if User.objects.filter(Q(username__iexact=email) | Q(email__iexact=email)).exists():
+            make_password(password)
+            return Response(
+                {
+                    "message": "If this email address is not registered, an account has been created.",
+                    "email": email,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        try:
+            user = create_user_public(
+                payload={
+                    "username": email,
+                    "email": email,
+                    "password": password,
+                    "first_name": serializer.validated_data.get("first_name", ""),
+                    "last_name": serializer.validated_data.get("last_name", ""),
+                    "role_code": role_obj,
+                    "department": None,
+                }
+            )
+        except ConflictError:
+            make_password(password)
+            return Response(
+                {
+                    "message": "If this email address is not registered, an account has been created.",
+                    "email": email,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        AuditEvent.objects.create(
+            actor=user,
+            event_type="REGISTERED",
+            entity_type="AppUser",
+            entity_id=user.id,
+            details_json={
+                "username": user.username,
+                "email": user.email,
+                "role_code": role_obj.role_code,
+            },
         )
-        return Response(UserListSerializer(user).data, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "message": "If this email address is not registered, an account has been created.",
+                "email": email,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class DepartmentListView(APIView):
@@ -566,6 +609,13 @@ class PasswordResetConfirmView(APIView):
             from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
             for outstanding in OutstandingToken.objects.filter(user=target).iterator():
                 BlacklistedToken.objects.get_or_create(token=outstanding)
+            AuditEvent.objects.create(
+                actor=target,
+                event_type="PASSWORD_RESET_COMPLETED",
+                entity_type="AppUser",
+                entity_id=profile.id,
+                details_json={"username": target.username, "email": target.email},
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -618,10 +668,20 @@ class HodSubmittedProjectsView(APIView):
     def get(self, request):
         department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
 
-        # Use Exists subquery to avoid N+1 loops over ProjectHodDecision
         has_hod_decision = ProjectHodDecision.objects.filter(
             project=OuterRef("pk"),
             review_round=OuterRef("review_round"),
+        )
+        approved_count_sq = (
+            ProjectFacultyReview.objects
+            .filter(
+                project=OuterRef("pk"),
+                review_round=OuterRef("review_round"),
+                decision=ProjectFacultyReview.APPROVE,
+            )
+            .values("project")
+            .annotate(cnt=Count("id"))
+            .values("cnt")
         )
 
         queryset = (
@@ -630,15 +690,17 @@ class HodSubmittedProjectsView(APIView):
                 department_id=department_id,
                 status__status_code__in=HOD_SUBMITTED_STATUS_CODES,
             )
-            .annotate(has_decision=Exists(has_hod_decision))
+            .annotate(
+                has_decision=Exists(has_hod_decision),
+                approved_stage_count=Coalesce(
+                    Subquery(approved_count_sq, output_field=IntegerField()), 0
+                ),
+            )
             .select_related("status", "department", "mentor_faculty", "team_leader_student",
                             "mentor_faculty__app_profile", "team_leader_student__app_profile")
             .order_by("-created_at")
         )
 
-        # Keep projects where:
-        #   - workflow_review_stages is None (legacy workflow), OR
-        #   - workflow requires HOD approval AND no decision yet
         eligible = queryset.filter(
             Q(workflow_review_stages__isnull=True) | (
                 Q(workflow_require_hod_approval=True) & Q(has_decision=False)
@@ -826,8 +888,13 @@ class AdminProjectsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
+        has_hod_decision = ProjectHodDecision.objects.filter(
+            project=OuterRef("pk"),
+            review_round=OuterRef("review_round"),
+        )
         queryset = (
             Project.objects
+            .annotate(has_decision=Exists(has_hod_decision))
             .select_related("status", "department", "mentor_faculty", "team_leader_student",
                             "mentor_faculty__app_profile", "team_leader_student__app_profile")
             .order_by("-created_at")
@@ -945,9 +1012,14 @@ class FacultyMentoredProjectsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
+        has_hod_decision = ProjectHodDecision.objects.filter(
+            project=OuterRef("pk"),
+            review_round=OuterRef("review_round"),
+        )
         queryset = (
             Project.objects
             .filter(mentor_faculty=request.user)
+            .annotate(has_decision=Exists(has_hod_decision))
             .select_related("status", "department", "mentor_faculty", "team_leader_student",
                             "mentor_faculty__app_profile", "team_leader_student__app_profile")
             .order_by("-created_at")
@@ -964,10 +1036,7 @@ class FacultyReviewQueueView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        # Count approved faculty reviews in the current round using a subquery
-        # instead of a per-project Python loop.
-        from django.db.models import Count, Subquery, IntegerField
-        from django.db.models.functions import Coalesce
+        user_dept = getattr(getattr(request.user, "app_profile", None), "department_id", None)
 
         approved_count_sq = (
             ProjectFacultyReview.objects
@@ -981,13 +1050,38 @@ class FacultyReviewQueueView(APIView):
             .values("cnt")
         )
 
+        has_user_approved_sq = ProjectFacultyReview.objects.filter(
+            project=OuterRef("pk"),
+            review_round=OuterRef("review_round"),
+            faculty=request.user,
+            decision=ProjectFacultyReview.APPROVE,
+        )
+
+        stage_1_condition = Q(mentor_faculty=request.user) & (
+            Q(workflow_review_stages__isnull=True) |
+            Q(workflow_review_stages__lte=1) |
+            Q(approved_stage_count=0)
+        )
+        later_stage_condition = (
+            Q(department_id=user_dept) &
+            ~Q(mentor_faculty=request.user) &
+            Q(workflow_review_stages__gt=1) &
+            Q(approved_stage_count__gte=1) &
+            Q(approved_stage_count__lt=F("workflow_review_stages")) &
+            ~Exists(has_user_approved_sq)
+        )
+
+        has_hod_decision = ProjectHodDecision.objects.filter(
+            project=OuterRef("pk"),
+            review_round=OuterRef("review_round"),
+        )
         final_qs = (
             Project.objects
             .filter(
-                mentor_faculty=request.user,
                 status__status_code__in=HOD_SUBMITTED_STATUS_CODES,
             )
             .annotate(
+                has_decision=Exists(has_hod_decision),
                 approved_stage_count=Coalesce(
                     Subquery(approved_count_sq, output_field=IntegerField()), 0
                 )
@@ -995,8 +1089,8 @@ class FacultyReviewQueueView(APIView):
             .select_related("status", "department", "mentor_faculty", "team_leader_student",
                             "mentor_faculty__app_profile", "team_leader_student__app_profile")
             .filter(
-                Q(workflow_review_stages__isnull=True) |
-                Q(approved_stage_count__lt=F("workflow_review_stages"))
+                (Q(workflow_review_stages__isnull=True) | Q(approved_stage_count__lt=F("workflow_review_stages")))
+                & (stage_1_condition | later_stage_condition)
             )
             .order_by("-created_at")
         )
@@ -1011,7 +1105,23 @@ class FacultyProjectReviewView(APIView):
     required_action = "faculty.project.review"
 
     def post(self, request, project_id: int):
-        project = get_object_or_404(Project, id=project_id, mentor_faculty=request.user)
+        project = get_object_or_404(Project, id=project_id)
+        user_dept = getattr(getattr(request.user, "app_profile", None), "department_id", None)
+        is_single_stage = project.workflow_review_stages is None or project.workflow_review_stages <= 1
+        if is_single_stage and project.mentor_faculty_id != request.user.id:
+            raise Http404("No project found matching the query.")
+        if not is_single_stage:
+            approved_count = ProjectFacultyReview.objects.filter(
+                project=project,
+                review_round=project.review_round,
+                decision=ProjectFacultyReview.APPROVE,
+            ).count()
+            current_stage = approved_count + 1
+            if current_stage == 1 and project.mentor_faculty_id != request.user.id:
+                raise Http404("No project found matching the query.")
+            if current_stage > 1 and (project.department_id != user_dept or project.mentor_faculty_id == request.user.id):
+                raise Http404("No project found matching the query.")
+
         serializer = FacultyProjectReviewCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         review = create_faculty_project_review(

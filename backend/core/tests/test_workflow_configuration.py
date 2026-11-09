@@ -1,5 +1,6 @@
+import importlib
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from core.errors import ConflictError, ForbiddenError
@@ -103,6 +104,7 @@ class WorkflowApprovalTransitionTests(TestCase):
         self.other_department = Department.objects.create(code="OT", name="Other")
         self.student = self.make_user("approval-student", Role.STUDENT, self.department)
         self.faculty = self.make_user("approval-faculty", Role.FACULTY, self.department)
+        self.dept_faculty_2 = self.make_user("dept-faculty-2", Role.FACULTY, self.department)
         self.other_faculty = self.make_user("other-faculty", Role.FACULTY, self.other_department)
         self.hod = self.make_user("approval-hod", Role.HOD, self.department)
 
@@ -132,7 +134,12 @@ class WorkflowApprovalTransitionTests(TestCase):
         self.assertEqual(project.status_id, ProjectStatus.UNDER_REVIEW)
         with self.assertRaises(ConflictError):
             create_hod_decision(actor=self.hod, project=project, decision=ProjectHodDecision.APPROVE, reason=None)
-        create_faculty_project_review(actor=self.faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage two")
+        # Mentor cannot review stage 2
+        with self.assertRaises(ForbiddenError):
+            create_faculty_project_review(actor=self.faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage two mentor repeat")
+        # Second active faculty in same department approves stage 2
+        second = create_faculty_project_review(actor=self.dept_faculty_2, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage two")
+        self.assertEqual(second.stage, 2)
         create_hod_decision(actor=self.hod, project=project, decision=ProjectHodDecision.APPROVE, reason="Final approval")
         project.refresh_from_db()
         self.assertEqual(project.status_id, ProjectStatus.APPROVED)
@@ -146,7 +153,7 @@ class WorkflowApprovalTransitionTests(TestCase):
         create_faculty_project_review(actor=self.faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage one")
         project.refresh_from_db()
         self.assertEqual(project.status_id, ProjectStatus.UNDER_REVIEW)
-        create_faculty_project_review(actor=self.faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage two")
+        create_faculty_project_review(actor=self.dept_faculty_2, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage two")
         project.refresh_from_db()
         self.assertEqual(project.status_id, ProjectStatus.APPROVED)
 
@@ -179,10 +186,12 @@ class WorkflowApprovalTransitionTests(TestCase):
         hod_project.refresh_from_db()
         self.assertEqual(hod_project.status_id, ProjectStatus.REJECTED)
 
-    def test_only_assigned_mentor_can_submit_faculty_review(self):
+    def test_only_assigned_mentor_can_submit_faculty_review_for_stage_one(self):
         project = self.make_project()
         with self.assertRaises(ForbiddenError):
             create_faculty_project_review(actor=self.other_faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason=None)
+        with self.assertRaises(ForbiddenError):
+            create_faculty_project_review(actor=self.dept_faculty_2, project=project, decision=ProjectFacultyReview.APPROVE, reason=None)
         client = APIClient()
         client.force_authenticate(user=self.other_faculty)
         response = client.post(f"/api/faculty/projects/{project.id}/review/", {"decision": "APPROVE"}, format="json")
@@ -197,7 +206,15 @@ class WorkflowApprovalTransitionTests(TestCase):
         self.assertEqual(first.status_code, 201, first.data)
         self.assertEqual(first.data["stage"], 1)
         self.assertEqual(first.data["remaining_stages"], 1)
-        second = client.post(f"/api/faculty/projects/{project.id}/review/", {"decision": "APPROVE"}, format="json")
+        
+        # Second stage attempted by same faculty is rejected
+        second_repeat = client.post(f"/api/faculty/projects/{project.id}/review/", {"decision": "APPROVE"}, format="json")
+        self.assertEqual(second_repeat.status_code, 404)
+
+        # Second stage by another faculty in same department succeeds
+        client2 = APIClient()
+        client2.force_authenticate(user=self.dept_faculty_2)
+        second = client2.post(f"/api/faculty/projects/{project.id}/review/", {"decision": "APPROVE"}, format="json")
         self.assertEqual(second.status_code, 201, second.data)
         self.assertEqual(second.data["remaining_stages"], 0)
         self.assertTrue(second.data["awaiting_hod"])
@@ -228,3 +245,78 @@ class WorkflowApprovalTransitionTests(TestCase):
         self.assertTrue(ProjectFacultyReview.objects.filter(project=project, decision=ProjectFacultyReview.APPROVE).exists())
         self.assertTrue(ProjectHodDecision.objects.filter(project=project, decision=ProjectHodDecision.APPROVE).exists())
 
+    def test_different_faculty_reviewer_required_for_each_stage(self):
+        project = self.make_project(stages=2)
+        # Stage 1: mentor approves
+        review1 = create_faculty_project_review(
+            actor=self.faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage 1 passed"
+        )
+        self.assertEqual(review1.stage, 1)
+
+        # Faculty from other department cannot approve stage 2
+        with self.assertRaises(ForbiddenError):
+            create_faculty_project_review(
+                actor=self.other_faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage 2 other dept"
+            )
+
+        # Mentor cannot approve stage 2 again
+        with self.assertRaises(ForbiddenError):
+            create_faculty_project_review(
+                actor=self.faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage 2 same faculty"
+            )
+
+        # Distinct faculty in same department succeeds
+        review2 = create_faculty_project_review(
+            actor=self.dept_faculty_2, project=project, decision=ProjectFacultyReview.APPROVE, reason="Stage 2 distinct faculty"
+        )
+        self.assertEqual(review2.stage, 2)
+
+    def test_project_approval_stages_mixin_delegation_and_has_decision_annotation(self):
+        from core.serializers import ProjectDetailSerializer, ProjectListSerializer, ProjectApprovalStagesMixin
+        self.assertTrue(issubclass(ProjectDetailSerializer, ProjectApprovalStagesMixin))
+        self.assertTrue(issubclass(ProjectListSerializer, ProjectApprovalStagesMixin))
+
+        project = self.make_project(stages=1)
+        create_faculty_project_review(
+            actor=self.faculty, project=project, decision=ProjectFacultyReview.APPROVE, reason="Approved"
+        )
+        project.refresh_from_db()
+
+        # Without annotation: queries DB
+        serializer = ProjectDetailSerializer(project)
+        self.assertTrue(serializer.data["awaiting_hod"])
+        self.assertTrue(serializer.data["can_hod_approve"])
+
+        # With has_decision=True annotated: returns False directly
+        project.has_decision = True
+        serializer_annotated = ProjectDetailSerializer(project)
+        self.assertFalse(serializer_annotated.data["awaiting_hod"])
+        self.assertFalse(serializer_annotated.data["can_hod_approve"])
+
+        # With has_decision=False annotated: returns True directly
+        project.has_decision = False
+        serializer_false = ProjectListSerializer(project)
+        self.assertTrue(serializer_false.data["awaiting_hod"])
+        self.assertTrue(serializer_false.data["can_hod_approve"])
+
+    def test_migration_0013_cache_table_creation_and_reverse_noop(self):
+        migration_0013 = importlib.import_module("core.migrations.0013_create_cache_table")
+        create_cache_table = migration_0013.create_cache_table
+        drop_cache_table = migration_0013.drop_cache_table
+        from django.db import connection
+        from unittest.mock import MagicMock, patch
+
+        mock_schema_editor = MagicMock()
+        mock_schema_editor.connection = connection
+
+        # When backend is not DatabaseCache: returns without table creation
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache"}}):
+            with patch("django.core.management.call_command") as mock_call:
+                create_cache_table(None, mock_schema_editor)
+                mock_call.assert_not_called()
+
+        # Table already exists in DB from test setup
+        create_cache_table(None, mock_schema_editor)
+        # Calling drop_cache_table is a documented no-op
+        drop_cache_table(None, mock_schema_editor)
+        mock_schema_editor.execute.assert_not_called()

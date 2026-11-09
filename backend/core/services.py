@@ -491,9 +491,11 @@ def create_faculty_project_review(*, actor: User, project: Project, decision: st
     if (
         not actor_profile
         or actor_profile.role_code_id != Role.FACULTY
-        or project.mentor_faculty_id != actor.id
+        or not actor.is_active
+        or not actor_profile.is_active
     ):
-        raise ForbiddenError("Only the assigned faculty mentor may review this project.")
+        raise ForbiddenError("Only active faculty members may review projects.")
+
     if project.workflow_review_stages is None:
         raise ConflictError("This project follows the legacy workflow and has no configured faculty review stages.")
     if project.status_id not in (ProjectStatus.SUBMITTED, ProjectStatus.UNDER_REVIEW):
@@ -508,6 +510,35 @@ def create_faculty_project_review(*, actor: User, project: Project, decision: st
     if current_stage > project.workflow_review_stages:
         raise ConflictError("All configured faculty review stages are already complete.")
 
+    if project.workflow_review_stages <= 1:
+        # Single-stage workflow keeps current behavior (mentor reviews)
+        if project.mentor_faculty_id != actor.id:
+            raise ForbiddenError("Only the assigned faculty mentor may review this project.")
+    else:
+        # Multi-stage workflow:
+        # All reviewers must belong to the project's department
+        if actor_profile.department_id != project.department_id:
+            raise ForbiddenError("Reviewers must belong to the project's department.")
+
+        if current_stage == 1:
+            # Stage 1 must be approved by the assigned faculty mentor
+            if project.mentor_faculty_id != actor.id:
+                raise ForbiddenError("Only the assigned faculty mentor may complete stage 1 review.")
+        else:
+            # Later stages must be approved by other active faculty in the same department
+            if project.mentor_faculty_id == actor.id:
+                raise ForbiddenError("Later review stages must be approved by other faculty reviewers in the department.")
+
+            previous_reviewers = set(
+                ProjectFacultyReview.objects.filter(
+                    project=project,
+                    review_round=project.review_round,
+                    decision=ProjectFacultyReview.APPROVE,
+                ).values_list("faculty_id", flat=True)
+            )
+            if actor.id in previous_reviewers:
+                raise ConflictError("Each faculty review stage must be approved by a different faculty reviewer.")
+
     review = ProjectFacultyReview.objects.create(
         project=project,
         faculty=actor,
@@ -520,7 +551,7 @@ def create_faculty_project_review(*, actor: User, project: Project, decision: st
         transition_project_status(actor=actor, project=project, to_status=ProjectStatus.UNDER_REVIEW, note="Faculty review started")
     if decision == ProjectFacultyReview.REJECT:
         transition_project_status(actor=actor, project=project, to_status=ProjectStatus.REJECTED, note=reason)
-    elif current_stage == project.workflow_review_stages:
+    elif decision == ProjectFacultyReview.APPROVE and current_stage == project.workflow_review_stages:
         hod_approved = ProjectHodDecision.objects.filter(
             project=project,
             review_round=project.review_round,
