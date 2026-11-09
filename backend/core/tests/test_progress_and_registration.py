@@ -1,11 +1,12 @@
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient, APITestCase
 
-from core.config import MAX_UPLOAD_BYTES
+from core.config import GENERIC_AUTH_ERROR, MAX_UPLOAD_BYTES
 from core.errors import ConflictError, ForbiddenError
 from core.models import (
     AppUser,
     Department,
+    ProgressDocument,
     Project,
     ProjectProgressUpdate,
     ProjectStatus,
@@ -166,10 +167,12 @@ class ProgressAndRegistrationApiTests(APITestCase):
         response = self.create_document(self.student, update, original_filename="Report.PDF")
 
         self.assertEqual(response.status_code, 201, response.data)
+        self.assertNotIn("storage_path", response.data)
+        doc = ProgressDocument.objects.get(id=response.data["id"])
         expected_prefix = f"progress/{self.project.id}/{update.id}/"
-        self.assertTrue(response.data["storage_path"].startswith(expected_prefix))
-        self.assertNotEqual(response.data["storage_path"], "client/controlled/path.pdf")
-        self.assertTrue(response.data["storage_path"].endswith("_Report.PDF"))
+        self.assertTrue(doc.storage_path.startswith(expected_prefix))
+        self.assertNotEqual(doc.storage_path, "client/controlled/path.pdf")
+        self.assertTrue(doc.storage_path.endswith("_Report.PDF"))
 
     def test_document_upload_rejects_another_leaders_update(self):
         other_project = self.make_project(self.other_student, ProjectStatus.APPROVED)
@@ -229,7 +232,7 @@ class ProgressAndRegistrationApiTests(APITestCase):
 
         self.assertEqual(first.status_code, 201, first.data)
         self.assertEqual(second.status_code, 409, second.data)
-        self.assertEqual(second.data["detail"], "An account with this email already exists.")
+        self.assertEqual(second.data["detail"], GENERIC_AUTH_ERROR)
         created = User.objects.get(pk=first.data["id"])
         self.assertEqual(created.username, "dup@x.com")
         self.assertEqual(created.email, "dup@x.com")

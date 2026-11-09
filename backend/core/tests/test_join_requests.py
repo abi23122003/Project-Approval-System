@@ -345,3 +345,36 @@ class JoinRequestApiTests(APITestCase):
                 status=ProjectJoinRequest.APPROVED,
                 note=None,
             )
+
+    def test_active_team_member_can_read_project_and_progress_but_cannot_update_or_create_second_project(self):
+        project = self.make_project()
+        member_student = self.make_user(Role.STUDENT, self.department)
+        join_req = self.request_join(member_student, project)
+        self.client_as(project.team_leader_student).post(
+            f"/api/join-requests/{join_req.data['id']}/approve/", {}, format="json"
+        )
+        self.assertTrue(ProjectMember.objects.filter(project=project, student=member_student, left_at__isnull=True).exists())
+
+        # 1. Team member can read own project via /api/student/project/
+        member_client = self.client_as(member_student)
+        res = member_client.get("/api/student/project/")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["id"], project.id)
+
+        # 2. Team member can read project progress via /api/student/project/progress/ and /api/projects/{id}/progress/
+        progress_res = member_client.get("/api/student/project/progress/")
+        self.assertEqual(progress_res.status_code, 200)
+        proj_progress_res = member_client.get(f"/api/projects/{project.id}/progress/")
+        self.assertEqual(proj_progress_res.status_code, 200)
+
+        # 3. Team member cannot update project (only leader can)
+        update_res = member_client.patch(f"/api/student/project/{project.id}/", {"title": "Hacked"}, format="json")
+        self.assertEqual(update_res.status_code, 404)  # get_object_or_404(Project, id=..., team_leader_student=user)
+
+        # 4. Active team member cannot create a new project
+        faculty = self.make_user(Role.FACULTY, self.department)
+        with self.assertRaises(ConflictError):
+            create_project(
+                actor=member_student,
+                payload={"mentor_faculty": faculty, "title": "Second project", "abstract": "Test"},
+            )

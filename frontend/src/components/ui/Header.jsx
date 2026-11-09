@@ -76,21 +76,17 @@ const Header = () => {
       { label: 'Dashboard',      path: '/student-dashboard',             icon: 'LayoutDashboard' },
       { label: 'Projects',       path: '/student-project-proposal-form', icon: 'FolderOpen' },
       { label: 'Documents',      path: '/student-document-management',   icon: 'FileText' },
-      { label: 'Notifications',  path: '/notification-center',           icon: 'Bell' },
     ],
     guide: [
       { label: 'Dashboard',     path: '/guide-dashboard',                icon: 'LayoutDashboard' },
       { label: 'Reviews',       path: '/guide-project-review-interface', icon: 'ClipboardCheck' },
-      { label: 'Notifications', path: '/notification-center',            icon: 'Bell' },
     ],
     reviewer: [
       { label: 'Dashboard',        path: '/reviewer-dashboard',              icon: 'LayoutDashboard' },
       { label: 'Review Interface', path: '/guide-project-review-interface',  icon: 'ClipboardCheck' },
-      { label: 'Notifications',    path: '/notification-center',             icon: 'Bell' },
     ],
     hod: [
       { label: 'Analytics',     path: '/hod-analytics-dashboard', icon: 'BarChart3' },
-      { label: 'Notifications', path: '/notification-center',     icon: 'Bell' },
     ],
     admin: [
       { label: 'Dashboard',     path: '/admin-dashboard',              icon: 'LayoutDashboard' },
@@ -139,14 +135,16 @@ const Header = () => {
         {/* ── Right side ───────────────────────────────────────────────────── */}
         <div className="ml-auto flex items-center gap-3">
 
-          {/* Bell → notification center */}
-          <button
-            onClick={() => navigate('/notification-center')}
-            className="p-2 rounded-lg hover:bg-muted transition-smooth"
-            title="Notifications"
-          >
-            <Icon name="Bell" size={20} color="var(--color-foreground)" />
-          </button>
+          {/* Bell → notification center (admin only) */}
+          {currentRole === 'admin' && (
+            <button
+              onClick={() => navigate('/notification-center')}
+              className="p-2 rounded-lg hover:bg-muted transition-smooth"
+              title="Notifications"
+            >
+              <Icon name="Bell" size={20} color="var(--color-foreground)" />
+            </button>
+          )}
 
           {/* Read-only role badge */}
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50">

@@ -5,7 +5,7 @@ from typing import Callable, Iterable
 
 from django.contrib.auth import get_user_model
 
-from .models import Project, ProjectJoinRequest, ProjectProgressUpdate, Role
+from .models import Project, ProjectJoinRequest, ProjectMember, ProjectProgressUpdate, Role
 
 User = get_user_model()
 
@@ -29,7 +29,22 @@ def _role_code(user: User) -> str | None:
     return getattr(profile, "role_code_id", None) or getattr(profile.role_code, "role_code", None)
 
 
+def _is_project_leader_or_active_member(user: User, obj: object | None) -> bool:
+    """Progress/document read: allow team leader AND active team members."""
+    project = None
+    if isinstance(obj, Project):
+        project = obj
+    elif isinstance(obj, ProjectProgressUpdate):
+        project = obj.project
+    if project is None:
+        return False
+    if project.team_leader_student_id == user.id:
+        return True
+    return ProjectMember.objects.filter(project=project, student=user, left_at__isnull=True).exists()
+
+
 def _is_project_leader(user: User, obj: object | None) -> bool:
+    """Write actions (progress create, document upload): only the team leader."""
     if isinstance(obj, Project):
         return obj.team_leader_student_id == user.id
     if isinstance(obj, ProjectProgressUpdate):
@@ -88,9 +103,9 @@ RULES: dict[Action, ActionRule] = {
     "join_request.cancel": ActionRule(action="join_request.cancel", roles=frozenset({Role.STUDENT})),
     "student.join_requests.read": ActionRule(action="student.join_requests.read", roles=frozenset({Role.STUDENT})),
 
-    # Progress updates (leader-only posting)
+    # Progress updates — writing is leader-only; reading allows active team members too
     "progress.create": ActionRule(action="progress.create", roles=frozenset({Role.STUDENT}), predicate=_is_project_leader),
-    "progress.read": ActionRule(action="progress.read", roles=frozenset({Role.STUDENT}), predicate=_is_project_leader),
+    "progress.read": ActionRule(action="progress.read", roles=frozenset({Role.STUDENT}), predicate=_is_project_leader_or_active_member),
     "progress.document.upload": ActionRule(action="progress.document.upload", roles=frozenset({Role.STUDENT}), predicate=_is_project_leader),
 
     # Admin dashboards
@@ -103,6 +118,7 @@ RULES: dict[Action, ActionRule] = {
     "faculty.projects.review_queue.read": ActionRule(action="faculty.projects.review_queue.read", roles=frozenset({Role.FACULTY})),
     "faculty.project.review": ActionRule(action="faculty.project.review", roles=frozenset({Role.FACULTY})),
     "faculty.comments.read": ActionRule(action="faculty.comments.read", roles=frozenset({Role.FACULTY})),
+    "faculty.comments.write": ActionRule(action="faculty.comments.write", roles=frozenset({Role.FACULTY})),
     "faculty.progress.read": ActionRule(action="faculty.progress.read", roles=frozenset({Role.FACULTY})),
 
     # Student dashboards

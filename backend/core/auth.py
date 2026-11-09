@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from rest_framework import serializers
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenObtainSerializer, TokenRefreshSerializer
@@ -13,6 +14,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import Role
+from .config import GENERIC_AUTH_ERROR
+
+_GENERIC_AUTH_ERROR = GENERIC_AUTH_ERROR
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -28,13 +32,22 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         # Authenticate first, but do not construct either token until the
         # authenticated account's authoritative role has been checked.
-        TokenObtainSerializer.validate(self, attrs)
+        # We catch AuthenticationFailed from the parent and re-raise with
+        # our generic message so that wrong-password and wrong-role produce
+        # identical 401 responses, preventing user enumeration.
+        try:
+            TokenObtainSerializer.validate(self, attrs)
+        except AuthenticationFailed:
+            raise AuthenticationFailed(_GENERIC_AUTH_ERROR) from None
+
         profile = getattr(self.user, "app_profile", None)
         if not profile or not profile.is_active or profile.role_code_id not in {"STUDENT", "FACULTY", "HOD", "ADMIN"}:
-            raise AuthenticationFailed("This account does not have an active, supported role profile.")
+            raise AuthenticationFailed(_GENERIC_AUTH_ERROR)
 
+        # Role mismatch must NOT reveal that the password was correct:
+        # return the same generic 401 as a wrong-password attempt.
         if profile.role_code_id != expected_role:
-            raise PermissionDenied("Role mismatch: select the login area assigned to this account.")
+            raise AuthenticationFailed(_GENERIC_AUTH_ERROR)
 
         refresh = self.get_token(self.user)
         return {
@@ -54,7 +67,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         profile = getattr(user, "app_profile", None)
         role_code = getattr(profile, "role_code_id", None) if profile else None
         if not profile or not profile.is_active or role_code not in {"STUDENT", "FACULTY", "HOD", "ADMIN"}:
-            raise AuthenticationFailed("This account does not have an active, supported role profile.")
+            raise AuthenticationFailed(_GENERIC_AUTH_ERROR)
         token["role_code"] = role_code
         token["user_id"] = user.id
         token["auth_version"] = profile.auth_version
@@ -63,6 +76,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    # Scoped throttle: "login" scope → 5 requests/min (see REST_FRAMEWORK settings)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "login"
 
 
 class ActiveProfileTokenRefreshSerializer(TokenRefreshSerializer):

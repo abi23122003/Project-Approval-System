@@ -42,12 +42,14 @@ from .views import (
     JoinRequestRejectView,
     LoginView,
     RegisterView,
+    ProgressDocumentListView,
     ProgressDocumentUploadView,
     ProgressUpdateView,
     StudentApprovedProjectsView,
     StudentJoinRequestsView,
     StudentMentorListView,
     StudentOwnProjectProgressView,
+    StudentProjectDocumentsView,
     StudentProjectUpdateView,
     StudentProjectView,
     UsersView,
@@ -65,9 +67,10 @@ urlpatterns = [
     re_path(r"^student/mentors/?$", StudentMentorListView.as_view(), name="student-mentors"),
     re_path(r"^users/?$", UsersView.as_view(), name="user-create"),
 
-
     re_path(r"^student/project/?$", StudentProjectView.as_view(), name="student-project"),
     re_path(r"^student/project/(?P<project_id>\d+)/?$", StudentProjectUpdateView.as_view(), name="student-project-update"),
+    re_path(r"^student/project/progress/?$", StudentOwnProjectProgressView.as_view(), name="student-project-progress"),
+    re_path(r"^student/project/documents/?$", StudentProjectDocumentsView.as_view(), name="student-project-documents"),
 
     re_path(r"^hod/projects/?$", HodSubmittedProjectsView.as_view(), name="hod-projects"),
     re_path(r"^hod/projects/(?P<project_id>\d+)/?$", HodProjectDetailView.as_view(), name="hod-project-detail"),
@@ -79,6 +82,7 @@ urlpatterns = [
     re_path(r"^join-requests/(?P<join_request_id>\d+)/cancel/?$", JoinRequestCancelView.as_view(), name="join-request-cancel"),
 
     re_path(r"^projects/(?P<project_id>\d+)/progress/?$", ProgressUpdateView.as_view(), name="progress"),
+    re_path(r"^projects/(?P<project_id>\d+)/documents/?$", ProgressDocumentListView.as_view(), name="project-documents"),
     re_path(r"^progress-updates/(?P<progress_update_id>\d+)/documents/?$", ProgressDocumentUploadView.as_view(), name="progress-document"),
 
     re_path(r"^admin/users/?$", AdminUsersView.as_view(), name="admin-users"),
@@ -111,6 +115,5 @@ urlpatterns = [
     re_path(r"^faculty/projects/(?P<project_id>\d+)/progress/?$", FacultyProjectProgressView.as_view(), name="faculty-project-progress"),
 
     re_path(r"^student/projects/approved/?$", StudentApprovedProjectsView.as_view(), name="student-approved-projects"),
-    re_path(r"^student/project/progress/?$", StudentOwnProjectProgressView.as_view(), name="student-project-progress"),
     re_path(r"^student/join-requests/?$", StudentJoinRequestsView.as_view(), name="student-join-requests"),
 ]

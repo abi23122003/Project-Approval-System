@@ -1,5 +1,7 @@
 from .models import Role
 
+GENERIC_AUTH_ERROR = "Invalid credentials or details."
+
 # Permissions and role restrictions
 PUBLIC_ENDPOINT_PERMISSIONS = []  # No authentication needed for public endpoints
 ALLOWED_REGISTRATION_ROLES = {Role.STUDENT}

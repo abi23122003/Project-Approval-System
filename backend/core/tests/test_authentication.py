@@ -1,7 +1,9 @@
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from rest_framework.test import APIClient, APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
+from core.config import GENERIC_AUTH_ERROR
 from core.models import AppUser, Role
 
 
@@ -10,10 +12,15 @@ User = get_user_model()
 
 class AuthenticationTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         for code, label in Role.ROLE_CHOICES:
             Role.objects.get_or_create(role_code=code, defaults={"role_code": code})
             self.make_user(code.lower(), code)
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
 
     def make_user(self, username, role=None):
         user = User.objects.create_user(
@@ -27,6 +34,7 @@ class AuthenticationTests(APITestCase):
 
     def test_each_role_authenticates_and_returns_authoritative_identity(self):
         for code, _label in Role.ROLE_CHOICES:
+            cache.clear()
             with self.subTest(role=code):
                 username = code.lower()
                 response = self.client.post(
@@ -51,6 +59,7 @@ class AuthenticationTests(APITestCase):
             for expected_role, _expected_label in Role.ROLE_CHOICES:
                 if expected_role == actual_role:
                     continue
+                cache.clear()
                 with self.subTest(actual=actual_role, expected=expected_role):
                     response = self.client.post(
                         "/api/auth/login/",
@@ -61,10 +70,10 @@ class AuthenticationTests(APITestCase):
                         },
                         format="json",
                     )
-                    self.assertEqual(response.status_code, 403, response.data)
+                    self.assertEqual(response.status_code, 401, response.data)
                     self.assertEqual(
                         response.data["detail"],
-                        "Role mismatch: select the login area assigned to this account.",
+                        GENERIC_AUTH_ERROR,
                     )
                     self.assertNotIn("access", response.data)
                     self.assertNotIn("refresh", response.data)
@@ -72,6 +81,7 @@ class AuthenticationTests(APITestCase):
 
     def test_invalid_credentials_and_unknown_user_are_rejected(self):
         for username, password in (("student@example.edu", "wrong-password"), ("missing@example.edu", "correct-password")):
+            cache.clear()
             with self.subTest(username=username):
                 response = self.client.post(
                     "/api/auth/login/",
@@ -79,6 +89,7 @@ class AuthenticationTests(APITestCase):
                     format="json",
                 )
                 self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.data["detail"], GENERIC_AUTH_ERROR)
                 self.assertNotIn("access", response.data)
                 self.assertNotIn("refresh", response.data)
 
@@ -88,6 +99,7 @@ class AuthenticationTests(APITestCase):
         inactive.app_profile.is_active = False
         inactive.app_profile.save(update_fields=["is_active"])
         for username in (user.username, inactive.username):
+            cache.clear()
             with self.subTest(username=username):
                 response = self.client.post(
                     "/api/auth/login/",
@@ -95,7 +107,33 @@ class AuthenticationTests(APITestCase):
                     format="json",
                 )
                 self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.data["detail"], GENERIC_AUTH_ERROR)
                 self.assertNotIn("access", response.data)
+
+    def test_sixth_login_in_a_minute_is_throttled_with_429(self):
+        cache.clear()
+        for i in range(5):
+            res = self.client.post(
+                "/api/auth/login/",
+                {
+                    "username": "student@example.edu",
+                    "password": "wrong-password",
+                    "expected_role": Role.STUDENT,
+                },
+                format="json",
+            )
+            self.assertEqual(res.status_code, 401)
+        throttled = self.client.post(
+            "/api/auth/login/",
+            {
+                "username": "student@example.edu",
+                "password": "wrong-password",
+                "expected_role": Role.STUDENT,
+            },
+            format="json",
+        )
+        self.assertEqual(throttled.status_code, 429)
+        cache.clear()
 
     def test_invalid_access_and_unauthenticated_protected_request_are_denied(self):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer not-a-jwt")

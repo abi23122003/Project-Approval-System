@@ -9,7 +9,7 @@ from django.db import DatabaseError, IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from .config import MAX_PROJECT_MEMBERS
+from .config import GENERIC_AUTH_ERROR, MAX_PROJECT_MEMBERS
 from .errors import BadRequestError, ConflictError, ForbiddenError, raise_db_exception
 from .models import (
     AppUser,
@@ -173,7 +173,7 @@ def create_user_public(*, payload: dict[str, Any]) -> User:
     Note: this intentionally does not create an audit event because there is no authenticated actor.
     """
     email = payload["email"].strip().lower()
-    duplicate_error = "An account with this email already exists."
+    duplicate_error = GENERIC_AUTH_ERROR
     try:
         with transaction.atomic():
             if User.objects.filter(Q(username__iexact=email) | Q(email__iexact=email)).exists():
@@ -280,7 +280,8 @@ def set_user_active(*, actor: User, profile: AppUser, is_active: bool, status_ch
     transactional=True,
 )
 def create_project(*, actor: User, payload: dict[str, Any]) -> Project:
-    profile = getattr(actor, "app_profile", None)
+    student = User.objects.select_for_update().get(pk=actor.pk)
+    profile = getattr(student, "app_profile", None)
     department = profile.department if profile and profile.department and profile.department.is_active else None
     if department is None:
         raise BadRequestError("Assign an active department before creating a project.")
@@ -296,6 +297,13 @@ def create_project(*, actor: User, payload: dict[str, Any]) -> Project:
     ):
         raise BadRequestError("The selected mentor must be active faculty in your department.")
 
+    # Reject if the student is already an active member of another project
+    # (either as team leader or as a joined member).
+    if Project.objects.filter(team_leader_student=student).exists():
+        raise ConflictError("You already lead a project. A student can only lead one project.")
+    if ProjectMember.objects.filter(student=student, left_at__isnull=True).exists():
+        raise ConflictError("You are already an active member of a project. Leave it before creating a new one.")
+
     workflow = WorkflowConfiguration.objects.first()
     project_status = payload.get("status") or ProjectStatus.objects.get(status_code=ProjectStatus.SUBMITTED)
     if project_status.status_code not in (ProjectStatus.DRAFT, ProjectStatus.SUBMITTED):
@@ -304,7 +312,7 @@ def create_project(*, actor: User, payload: dict[str, Any]) -> Project:
     project = Project.objects.create(
         department=department,
         mentor_faculty=mentor,
-        team_leader_student=actor,
+        team_leader_student=student,
         title=payload["title"],
         abstract=payload["abstract"],
         status=project_status,
@@ -313,7 +321,7 @@ def create_project(*, actor: User, payload: dict[str, Any]) -> Project:
         workflow_require_hod_approval=workflow.require_hod_approval if workflow else None,
         workflow_parallel_reviews=workflow.parallel_reviews if workflow else None,
     )
-    ProjectMember.objects.get_or_create(project=project, student=actor)
+    ProjectMember.objects.get_or_create(project=project, student=student)
     return project
 
 

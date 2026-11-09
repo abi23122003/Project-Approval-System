@@ -142,6 +142,23 @@ class AuthorizationIntegrationTests(TestCase):
         self.assertEqual(unrelated_progress.status_code, 404)
         self.assertEqual(own_comments.status_code, 200)
 
+        # Faculty can post comments to mentored project
+        created_comment = client.post(
+            f"/api/faculty/projects/{approved_a.id}/comments/",
+            {"comment_text": "Keep up the great work!"},
+            format="json",
+        )
+        self.assertEqual(created_comment.status_code, 201)
+        self.assertEqual(created_comment.data["comment_text"], "Keep up the great work!")
+
+        # Faculty cannot post comments to unmentored project
+        denied_comment = client.post(
+            f"/api/faculty/projects/{approved_b.id}/comments/",
+            {"comment_text": "Unauthorized comment"},
+            format="json",
+        )
+        self.assertEqual(denied_comment.status_code, 404)
+
     def test_join_request_get_is_scoped_and_supports_project_filter(self):
         own = ProjectJoinRequest.objects.create(project=self.project_a, student=self.student_b)
         unrelated = ProjectJoinRequest.objects.create(project=self.project_b, student=self.student_a)

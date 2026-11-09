@@ -339,8 +339,19 @@ class ProjectUpdateSerializer(serializers.ModelSerializer):
         return value
 
 
+def _user_display_name(user) -> str:
+    """Return full name or username for a related User object."""
+    if user is None:
+        return ""
+    full_name = f"{user.first_name} {user.last_name}".strip()
+    return full_name or user.username
+
+
 class ProjectDetailSerializer(serializers.ModelSerializer):
     status = serializers.CharField(source="status.status_code")
+    student_name = serializers.SerializerMethodField()
+    mentor_name = serializers.SerializerMethodField()
+    is_team_leader = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -348,7 +359,10 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             "id",
             "department",
             "mentor_faculty",
+            "mentor_name",
             "team_leader_student",
+            "student_name",
+            "is_team_leader",
             "title",
             "abstract",
             "status",
@@ -358,16 +372,39 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def get_student_name(self, obj):
+        return _user_display_name(obj.team_leader_student)
+
+    def get_mentor_name(self, obj):
+        return _user_display_name(obj.mentor_faculty)
+
+    def get_is_team_leader(self, obj) -> bool:
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
+            return False
+        return obj.team_leader_student_id == request.user.id
+
 
 class ProjectListSerializer(serializers.ModelSerializer):
     status = serializers.CharField(source="status.status_code")
+    student_name = serializers.SerializerMethodField()
+    mentor_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
         fields = [
-            "id", "title", "status", "department", "mentor_faculty", "team_leader_student", "created_at",
+            "id", "title", "abstract", "status", "department",
+            "mentor_faculty", "mentor_name",
+            "team_leader_student", "student_name",
+            "created_at",
             "workflow_review_stages", "workflow_require_hod_approval", "workflow_parallel_reviews",
         ]
+
+    def get_student_name(self, obj):
+        return _user_display_name(obj.team_leader_student)
+
+    def get_mentor_name(self, obj):
+        return _user_display_name(obj.mentor_faculty)
 
 
 class ProjectStatusHistorySerializer(serializers.ModelSerializer):
@@ -458,9 +495,14 @@ class ProgressDocumentCreateSerializer(serializers.ModelSerializer):
 
 
 class ProgressDocumentSerializer(serializers.ModelSerializer):
+    """
+    Read serializer for ProgressDocument.
+    storage_path is intentionally excluded — it is an internal server path and
+    must not be leaked to clients.
+    """
     class Meta:
         model = ProgressDocument
-        fields = ["id", "progress_update", "storage_path", "original_filename", "mime_type", "byte_size", "uploaded_at"]
+        fields = ["id", "progress_update", "original_filename", "mime_type", "byte_size", "uploaded_at"]
 
 
 class ProjectMemberSerializer(serializers.ModelSerializer):
@@ -473,6 +515,10 @@ class ProjectCommentSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProjectComment
         fields = ["id", "project", "faculty", "comment_text", "created_at"]
+
+
+class ProjectCommentCreateSerializer(serializers.Serializer):
+    comment_text = serializers.CharField(min_length=1, max_length=5000, trim_whitespace=True)
 
 
 class AuditEventSerializer(serializers.ModelSerializer):

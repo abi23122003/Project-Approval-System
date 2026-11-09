@@ -17,7 +17,7 @@ The checked-in requirements file pins the installed direct and transitive packag
 
 `backend/.env.example` documents development-only values. Django does not load `.env` files; export these variables in PowerShell or configure them in the service environment. Development defaults use `DEBUG=true`, local allowed hosts, and only the two local Vite origins. The signing key is generated ephemerally when `DJANGO_SECRET_KEY` is not set, so tokens do not survive a backend restart.
 
-For production, set `DJANGO_ENV=production` (or set `DJANGO_DEBUG=false`) and provide all of the following from a secret manager or deployment environment:
+For production, set `DJANGO_ENV=production` (note that setting `DJANGO_DEBUG=false` alone does not enable production mode) and provide all of the following from a secret manager or deployment environment:
 
 - `DJANGO_SECRET_KEY`: a unique random value with at least 50 characters. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(64))"`; do not commit the output.
 - `DJANGO_ALLOWED_HOSTS`: comma-separated explicit hostnames; wildcards are rejected.

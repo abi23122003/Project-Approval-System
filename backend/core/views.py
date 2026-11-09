@@ -8,14 +8,15 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import transaction
+from django.db.models import Exists, F, OuterRef, Q
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
-from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .auth import CustomTokenObtainPairView
@@ -27,11 +28,13 @@ from .models import (
     GradingScale,
     NotificationTemplate,
     ProjectFacultyReview,
+    ProgressDocument,
     Role,
     Project,
     ProjectComment,
     ProjectHodDecision,
     ProjectJoinRequest,
+    ProjectMember,
     ProjectProgressUpdate,
     ProjectStatusHistory,
     ProjectStatus,
@@ -72,6 +75,7 @@ from .serializers import (
     ProgressUpdateCreateSerializer,
     ProgressUpdateSerializer,
     ProjectCommentSerializer,
+    ProjectCommentCreateSerializer,
     ProjectCreateSerializer,
     ProjectDetailSerializer,
     ProjectListSerializer,
@@ -110,10 +114,13 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 class LoginView(CustomTokenObtainPairView):
     permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
+    # throttle_scope = "login" is set in CustomTokenObtainPairView already
 
 
 class RegisterView(APIView):
     permission_classes = PUBLIC_ENDPOINT_PERMISSIONS
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "register"
 
     def post(self, request):
         serializer = PublicRegisterSerializer(data=request.data)
@@ -532,6 +539,8 @@ class AdminUserPasswordResetView(APIView):
 class PasswordResetConfirmView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "reset"
 
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)
@@ -560,6 +569,15 @@ class PasswordResetConfirmView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _get_student_project(user) -> "Project | None":
+    """Return the project the student leads or is an active member of (read access)."""
+    led = Project.objects.filter(team_leader_student=user).first()
+    if led:
+        return led
+    membership = ProjectMember.objects.filter(student=user, left_at__isnull=True).select_related("project").first()
+    return membership.project if membership else None
+
+
 class StudentProjectView(APIView):
     permission_classes = [RBACPermission]
     required_action = "student.project.read"
@@ -570,13 +588,13 @@ class StudentProjectView(APIView):
         serializer = ProjectCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         project = create_project(actor=request.user, payload=serializer.validated_data)
-        return Response(ProjectDetailSerializer(project).data, status=status.HTTP_201_CREATED)
+        return Response(ProjectDetailSerializer(project, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
     def get(self, request):
-        project = Project.objects.filter(team_leader_student=request.user).first()
+        project = _get_student_project(request.user)
         if project is None:
             return Response(None, status=status.HTTP_200_OK)  # student has no project yet
-        return Response(ProjectDetailSerializer(project).data)
+        return Response(ProjectDetailSerializer(project, context={"request": request}).data)
 
 
 class StudentProjectUpdateView(APIView):
@@ -589,7 +607,7 @@ class StudentProjectUpdateView(APIView):
         serializer = ProjectUpdateSerializer(project, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         project = update_project(actor=request.user, project=project, payload=serializer.validated_data)
-        return Response(ProjectDetailSerializer(project).data)
+        return Response(ProjectDetailSerializer(project, context={"request": request}).data)
 
 
 class HodSubmittedProjectsView(APIView):
@@ -599,23 +617,36 @@ class HodSubmittedProjectsView(APIView):
 
     def get(self, request):
         department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
-        queryset = Project.objects.filter(
-            department_id=department_id,
-            status__status_code__in=HOD_SUBMITTED_STATUS_CODES,
-        ).order_by("-created_at")
-        candidates = list(queryset)
-        eligible_ids = []
-        for project in candidates:
-            if project.workflow_review_stages is None:
-                eligible_ids.append(project.id)
-            elif project.workflow_require_hod_approval and not ProjectHodDecision.objects.filter(
-                project=project,
-                review_round=project.review_round,
-            ).exists():
-                eligible_ids.append(project.id)
-        queryset = Project.objects.filter(id__in=eligible_ids).order_by("-created_at")
+
+        # Use Exists subquery to avoid N+1 loops over ProjectHodDecision
+        has_hod_decision = ProjectHodDecision.objects.filter(
+            project=OuterRef("pk"),
+            review_round=OuterRef("review_round"),
+        )
+
+        queryset = (
+            Project.objects
+            .filter(
+                department_id=department_id,
+                status__status_code__in=HOD_SUBMITTED_STATUS_CODES,
+            )
+            .annotate(has_decision=Exists(has_hod_decision))
+            .select_related("status", "department", "mentor_faculty", "team_leader_student",
+                            "mentor_faculty__app_profile", "team_leader_student__app_profile")
+            .order_by("-created_at")
+        )
+
+        # Keep projects where:
+        #   - workflow_review_stages is None (legacy workflow), OR
+        #   - workflow requires HOD approval AND no decision yet
+        eligible = queryset.filter(
+            Q(workflow_review_stages__isnull=True) | (
+                Q(workflow_require_hod_approval=True) & Q(has_decision=False)
+            )
+        )
+
         paginator = self.pagination_class()
-        page = paginator.paginate_queryset(queryset, request)
+        page = paginator.paginate_queryset(eligible, request)
         serializer = ProjectListSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
@@ -626,7 +657,10 @@ class HodProjectDetailView(APIView):
 
     def get(self, request, project_id: int):
         department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
-        project = get_object_or_404(Project, id=project_id, department_id=department_id)
+        project = get_object_or_404(
+            Project.objects.select_related("status", "department", "mentor_faculty", "team_leader_student"),
+            id=project_id, department_id=department_id,
+        )
         return Response(ProjectDetailSerializer(project).data)
 
 
@@ -753,6 +787,26 @@ class ProgressUpdateView(APIView):
         return Response(ProgressUpdateSerializer(progress).data, status=status.HTTP_201_CREATED)
 
 
+class ProgressDocumentListView(APIView):
+    """List all documents for a given project (across all progress updates)."""
+    permission_classes = [RBACPermission]
+    required_action = "progress.read"
+    pagination_class = StandardResultsSetPagination
+
+    def get(self, request, project_id: int):
+        project = get_object_or_404(Project, id=project_id)
+        self.check_object_permissions(request, project)
+        queryset = (
+            ProgressDocument.objects
+            .filter(progress_update__project_id=project_id)
+            .select_related("progress_update")
+            .order_by("-uploaded_at")
+        )
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        return paginator.get_paginated_response(ProgressDocumentSerializer(page, many=True).data)
+
+
 class ProgressDocumentUploadView(APIView):
     permission_classes = [RBACPermission]
     required_action = "progress.document.upload"
@@ -772,7 +826,12 @@ class AdminProjectsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = Project.objects.all().order_by("-created_at")
+        queryset = (
+            Project.objects
+            .select_related("status", "department", "mentor_faculty", "team_leader_student",
+                            "mentor_faculty__app_profile", "team_leader_student__app_profile")
+            .order_by("-created_at")
+        )
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectListSerializer(page, many=True)
@@ -867,10 +926,13 @@ class FacultyApprovedProjectsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = Project.objects.filter(
-            mentor_faculty=request.user,
-            status__status_code="APPROVED",
-        ).order_by("-approved_at")
+        queryset = (
+            Project.objects
+            .filter(mentor_faculty=request.user, status__status_code="APPROVED")
+            .select_related("status", "department", "mentor_faculty", "team_leader_student",
+                            "mentor_faculty__app_profile", "team_leader_student__app_profile")
+            .order_by("-approved_at")
+        )
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectListSerializer(page, many=True)
@@ -883,7 +945,13 @@ class FacultyMentoredProjectsView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = Project.objects.filter(mentor_faculty=request.user).order_by("-created_at")
+        queryset = (
+            Project.objects
+            .filter(mentor_faculty=request.user)
+            .select_related("status", "department", "mentor_faculty", "team_leader_student",
+                            "mentor_faculty__app_profile", "team_leader_student__app_profile")
+            .order_by("-created_at")
+        )
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectListSerializer(page, many=True)
@@ -896,24 +964,45 @@ class FacultyReviewQueueView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = Project.objects.filter(
-            mentor_faculty=request.user,
-            status__status_code__in=HOD_SUBMITTED_STATUS_CODES,
-        ).order_by("-created_at")
-        projects = list(queryset)
-        reviewable_ids = []
-        for project in projects:
-            if project.workflow_review_stages is None:
-                reviewable_ids.append(project.id)
-            elif ProjectFacultyReview.objects.filter(
-                project=project,
-                review_round=project.review_round,
+        # Count approved faculty reviews in the current round using a subquery
+        # instead of a per-project Python loop.
+        from django.db.models import Count, Subquery, IntegerField
+        from django.db.models.functions import Coalesce
+
+        approved_count_sq = (
+            ProjectFacultyReview.objects
+            .filter(
+                project=OuterRef("pk"),
+                review_round=OuterRef("review_round"),
                 decision=ProjectFacultyReview.APPROVE,
-            ).count() < project.workflow_review_stages:
-                reviewable_ids.append(project.id)
-        queryset = Project.objects.filter(id__in=reviewable_ids).order_by("-created_at")
+            )
+            .values("project")
+            .annotate(cnt=Count("id"))
+            .values("cnt")
+        )
+
+        final_qs = (
+            Project.objects
+            .filter(
+                mentor_faculty=request.user,
+                status__status_code__in=HOD_SUBMITTED_STATUS_CODES,
+            )
+            .annotate(
+                approved_stage_count=Coalesce(
+                    Subquery(approved_count_sq, output_field=IntegerField()), 0
+                )
+            )
+            .select_related("status", "department", "mentor_faculty", "team_leader_student",
+                            "mentor_faculty__app_profile", "team_leader_student__app_profile")
+            .filter(
+                Q(workflow_review_stages__isnull=True) |
+                Q(approved_stage_count__lt=F("workflow_review_stages"))
+            )
+            .order_by("-created_at")
+        )
+
         paginator = self.pagination_class()
-        page = paginator.paginate_queryset(queryset, request)
+        page = paginator.paginate_queryset(final_qs, request)
         return paginator.get_paginated_response(ProjectListSerializer(page, many=True).data)
 
 
@@ -948,8 +1037,11 @@ class FacultyProjectReviewView(APIView):
 
 class FacultyProjectCommentsView(APIView):
     permission_classes = [RBACPermission]
-    required_action = "faculty.comments.read"
     pagination_class = StandardResultsSetPagination
+
+    def initial(self, request, *args, **kwargs):
+        self.required_action = "faculty.comments.write" if request.method == "POST" else "faculty.comments.read"
+        super().initial(request, *args, **kwargs)
 
     def get(self, request, project_id: int):
         project = get_object_or_404(Project, id=project_id, mentor_faculty=request.user)
@@ -958,6 +1050,17 @@ class FacultyProjectCommentsView(APIView):
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProjectCommentSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+    def post(self, request, project_id: int):
+        project = get_object_or_404(Project, id=project_id, mentor_faculty=request.user)
+        serializer = ProjectCommentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        comment = ProjectComment.objects.create(
+            project=project,
+            faculty=request.user,
+            comment_text=serializer.validated_data["comment_text"],
+        )
+        return Response(ProjectCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
 
 
 class FacultyProjectProgressView(APIView):
@@ -983,9 +1086,11 @@ class StudentApprovedProjectsView(APIView):
         department_id = getattr(getattr(request.user, "app_profile", None), "department_id", None)
         queryset = Project.objects.none()
         if department_id is not None:
-            queryset = Project.objects.filter(
-                department_id=department_id,
-                status__status_code="APPROVED",
+            queryset = (
+                Project.objects
+                .filter(department_id=department_id, status__status_code="APPROVED")
+                .select_related("status", "department", "mentor_faculty", "team_leader_student",
+                                "mentor_faculty__app_profile", "team_leader_student__app_profile")
             )
         queryset = queryset.order_by("-approved_at")
         paginator = self.pagination_class()
@@ -1000,7 +1105,7 @@ class StudentOwnProjectProgressView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        project = Project.objects.filter(team_leader_student=request.user).first()
+        project = _get_student_project(request.user)
         if project is None:
             # Student has no project yet — return empty paginated result (200, not 404)
             return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
@@ -1009,6 +1114,27 @@ class StudentOwnProjectProgressView(APIView):
         page = paginator.paginate_queryset(queryset, request)
         serializer = ProgressUpdateSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class StudentProjectDocumentsView(APIView):
+    """List all documents attached to the student's own project (across all progress updates)."""
+    permission_classes = [RBACPermission]
+    required_action = "student.own.progress.read"
+    pagination_class = StandardResultsSetPagination
+
+    def get(self, request):
+        project = _get_student_project(request.user)
+        if project is None:
+            return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
+        queryset = (
+            ProgressDocument.objects
+            .filter(progress_update__project=project)
+            .select_related("progress_update")
+            .order_by("-uploaded_at")
+        )
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        return paginator.get_paginated_response(ProgressDocumentSerializer(page, many=True).data)
 
 
 class StudentJoinRequestsView(APIView):

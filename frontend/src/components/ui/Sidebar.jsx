@@ -18,21 +18,17 @@ const roleNavItems = {
     { label: 'Dashboard', path: '/student-dashboard', icon: 'LayoutDashboard' },
     { label: 'Proposal Form', path: '/student-project-proposal-form', icon: 'FileEdit' },
     { label: 'Documents', path: '/student-document-management', icon: 'FileText' },
-    { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
   ],
   guide: [
     { label: 'Dashboard', path: '/guide-dashboard', icon: 'LayoutDashboard' },
     { label: 'Project Reviews', path: '/guide-project-review-interface', icon: 'ClipboardCheck' },
-    { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
   ],
   reviewer: [
     { label: 'Dashboard', path: '/reviewer-dashboard', icon: 'LayoutDashboard' },
     { label: 'Review Interface', path: '/guide-project-review-interface', icon: 'ClipboardCheck' },
-    { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
   ],
   hod: [
     { label: 'Analytics', path: '/hod-analytics-dashboard', icon: 'BarChart3' },
-    { label: 'Notifications', path: '/notification-center', icon: 'Bell' }
   ],
   admin: [
     { label: 'Dashboard', path: '/admin-dashboard', icon: 'LayoutDashboard' },

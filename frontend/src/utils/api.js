@@ -77,6 +77,7 @@ export const fetchStudentProgress = async () => {
 
 export const fetchApprovedProjects = () => fetchAllPages('/student/projects/approved/');
 export const fetchStudentJoinRequests = () => fetchAllPages('/student/join-requests/');
+export const fetchStudentDocuments = () => fetchAllPages('/student/project/documents/');
 export const fetchMentoredProjects = () => fetchAllPages('/faculty/projects/mentored/');
 export const fetchProjectComments = (projectId) => fetchAllPages(`/faculty/projects/${projectId}/comments/`);
 export const fetchFacultyProjectProgress = (projectId) => fetchAllPages(`/faculty/projects/${projectId}/progress/`);

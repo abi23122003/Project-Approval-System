@@ -80,20 +80,59 @@ const saveSession = (roleValue, email, accessToken, refreshToken, navigate) => {
 const AuthenticationRoleSelection = () => {
   const navigate = useNavigate();
 
-  const devDefaultRoleValue = import.meta.env?.VITE_DEV_DEFAULT_ROLE;
-  const devDefaultAdminEmail = import.meta.env?.VITE_DEV_DEFAULT_ADMIN_EMAIL;
-  const devDefaultAdminPassword = import.meta.env?.VITE_DEV_DEFAULT_ADMIN_PASSWORD;
-  const devAutoLogin = parseBoolEnv(import.meta.env?.VITE_DEV_AUTO_LOGIN);
+  const isDev = Boolean(import.meta.env?.DEV);
+  const devDefaultRoleValue = isDev ? import.meta.env?.VITE_DEV_DEFAULT_ROLE : undefined;
+  const devDefaultAdminEmail = isDev ? import.meta.env?.VITE_DEV_DEFAULT_ADMIN_EMAIL : undefined;
+  const devDefaultAdminPassword = isDev ? import.meta.env?.VITE_DEV_DEFAULT_ADMIN_PASSWORD : undefined;
+  const devAutoLogin = isDev && parseBoolEnv(import.meta.env?.VITE_DEV_AUTO_LOGIN);
 
   const initialRole = roles?.find(r => r?.value === devDefaultRoleValue) || roles?.[0] || null;
   const [selectedRole, setSelectedRole] = useState(initialRole);
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
-  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
   const [forgotPasswordMessage, setForgotPasswordMessage] = useState('');
   const [authMode, setAuthMode] = useState('login');
   const submissionLock = useRef(false);
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    if (!showForgotPasswordModal) return;
+    const modal = modalRef.current;
+    if (!modal) return;
+    const previouslyFocusedElement = document.activeElement;
+    const focusableElements = modal.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    firstElement?.focus();
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowForgotPasswordModal(false);
+        return;
+      }
+      if (e.key === 'Tab') {
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement?.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement?.focus();
+          }
+        }
+      }
+    };
+    modal.addEventListener('keydown', handleKeyDown);
+    return () => {
+      modal.removeEventListener('keydown', handleKeyDown);
+      previouslyFocusedElement?.focus?.();
+    };
+  }, [showForgotPasswordModal]);
 
   const handleModeChange = (newMode) => {
     setAuthMode(newMode);
@@ -212,8 +251,7 @@ const AuthenticationRoleSelection = () => {
     }
   };
 
-  const handleForgotPassword = (email) => {
-    setForgotPasswordEmail(email);
+  const handleForgotPassword = () => {
     setForgotPasswordMessage('');
     setShowForgotPasswordModal(true);
   };
@@ -288,12 +326,8 @@ const AuthenticationRoleSelection = () => {
           </div>
 
           <div className="mt-6 md:mt-8">
-            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+            <div className="flex items-center justify-center text-xs text-muted-foreground">
               <span>&copy; {new Date()?.getFullYear()} AcademicProjectHub</span>
-              <span>•</span>
-              <button className="hover:text-foreground transition-smooth">Privacy Policy</button>
-              <span>•</span>
-              <button className="hover:text-foreground transition-smooth">Terms of Service</button>
             </div>
           </div>
         </div>
@@ -301,15 +335,25 @@ const AuthenticationRoleSelection = () => {
 
       {/* Forgot Password Modal */}
       {showForgotPasswordModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000] p-4">
-          <div className="bg-card border border-border rounded-xl shadow-elevation-xl p-6 md:p-8 max-w-md w-full">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000] p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowForgotPasswordModal(false); }}
+        >
+          <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="forgot-password-title"
+            className="bg-card border border-border rounded-xl shadow-elevation-xl p-6 md:p-8 max-w-md w-full"
+          >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg md:text-xl font-heading font-semibold text-foreground">
+              <h3 id="forgot-password-title" className="text-lg md:text-xl font-heading font-semibold text-foreground">
                 Reset Password
               </h3>
               <button
                 onClick={() => setShowForgotPasswordModal(false)}
                 className="text-muted-foreground hover:text-foreground transition-smooth"
+                aria-label="Close"
               >
                 <Icon name="X" size={20} />
               </button>
@@ -318,30 +362,17 @@ const AuthenticationRoleSelection = () => {
               Password reset is not configured. Contact your administrator for help.
             </p>
             <div className="space-y-4">
-              <input
-                type="email"
-                placeholder="your@email.edu"
-                value={forgotPasswordEmail}
-                onChange={(e) => setForgotPasswordEmail(e.target.value)}
-                className="w-full px-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 bg-background text-foreground"
-              />
               {forgotPasswordMessage && (
                 <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg text-sm text-primary">
                   {forgotPasswordMessage}
                 </div>
               )}
-              <div className="flex gap-3">
+              <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setShowForgotPasswordModal(false)}
-                  className="flex-1 px-4 py-2 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-smooth"
+                  className="px-4 py-2 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-smooth"
                 >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleForgotPasswordSubmit(forgotPasswordEmail)}
-                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-smooth"
-                >
-                  Reset Help
+                  Close
                 </button>
               </div>
             </div>

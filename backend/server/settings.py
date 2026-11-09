@@ -52,8 +52,13 @@ if DJANGO_ENV not in {"development", "production"}:
     raise ImproperlyConfigured("DJANGO_ENV must be either 'development' or 'production'.")
 
 DEBUG = parse_bool("DJANGO_DEBUG", env("DJANGO_DEBUG", "false"))
-IS_PRODUCTION = DJANGO_ENV == "production" or ("DJANGO_DEBUG" in os.environ and not DEBUG)
-if DJANGO_ENV == "production" and DEBUG:
+
+# Production requires DJANGO_ENV=production explicitly.
+# Setting DJANGO_DEBUG=false does not enable production mode.
+# IS_PRODUCTION is true only when DJANGO_ENV is explicitly set to "production".
+IS_PRODUCTION = DJANGO_ENV == "production"
+
+if IS_PRODUCTION and DEBUG:
     raise ImproperlyConfigured("DJANGO_DEBUG must be false in production.")
 
 SECRET_KEY = env("DJANGO_SECRET_KEY")
@@ -211,7 +216,7 @@ if _db_choice == 'postgres':
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.environ.get('POSTGRES_DB', 'project_approval_db'),
-            'USER': os.environ.get('POSTGRES_USER', 'aswin'),
+            'USER': env('POSTGRES_USER', required=True),
             'PASSWORD': env('POSTGRES_PASSWORD', required=True),
             'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
             'PORT': os.environ.get('POSTGRES_PORT', '5432'),
@@ -287,6 +292,17 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Anonymous requests: 30/min across the whole API
+        'anon': '30/min',
+        # Scoped throttles for sensitive auth endpoints
+        'login': '5/min',
+        'register': '10/hour',
+        'reset': '10/hour',
+    },
 }
 
 SIMPLE_JWT = {
